@@ -262,11 +262,16 @@ export const getMailHeaders = async (
     const addressJson = JSON.stringify([{ address }]);
     // Detect sent/received by address matching, not the `sent` flag.
     // For sent mails, check from_address only.
-    // For received mails, check to_address, cc_address, and bcc_address.
-    // This ensures self-emails appear in both Sent and Inbox views correctly.
+    // For received mails, check to_address, cc_address, bcc_address AND
+    // envelope_to. `envelope_to` is the SMTP-level delivery address that
+    // can differ from MIME to/cc/bcc when a sender uses listserv-style
+    // routing (e.g. GitHub notifications). Without it, mails surfaced
+    // under an envelope_to-only account in getAccountStats wouldn't have
+    // any rows when the user clicks through. Mirrors getAccountStats's
+    // address expansion below.
     const addressCondition = options.sent
       ? `${FROM_ADDRESS} @> $2::jsonb`
-      : `(${TO_ADDRESS} @> $2::jsonb OR cc_address @> $2::jsonb OR bcc_address @> $2::jsonb)`;
+      : `(${TO_ADDRESS} @> $2::jsonb OR cc_address @> $2::jsonb OR bcc_address @> $2::jsonb OR envelope_to @> $2::jsonb)`;
     // Select only columns needed for mail headers — excludes html/text/attachments
     // to avoid loading full email bodies into memory for every concurrent request.
     const headerColumns = [
@@ -426,19 +431,28 @@ export const getAccountStats = async (
   }[]
 > => {
   try {
-    // For sent mails, only look at from_address
-    // For received mails, look at to_address, cc_address, and bcc_address
+    // For sent mails, only look at from_address.
+    // For received mails, union to_address + cc_address + bcc_address AND
+    // envelope_to. `envelope_to` is the SMTP-level delivery address, which
+    // can differ from MIME to/cc/bcc when a sender uses listserv-style
+    // routing (e.g. GitHub notifications: MIME `to_text` =
+    // `"hoiekim/budget" <budget@noreply.github.com>`, envelope_to =
+    // `<sub-addr>@hoie.kim`). Without including envelope_to, mails
+    // delivered via sub-addressing don't surface in the per-account
+    // received view at all — but the push badge counts them, causing
+    // FE shows 0 / badge shows N.
     const addressExpansion = sent
       ? `jsonb_array_elements(from_address)->>'address' as address`
       : `jsonb_array_elements(
-          COALESCE(to_address, '[]'::jsonb) || 
-          COALESCE(cc_address, '[]'::jsonb) || 
-          COALESCE(bcc_address, '[]'::jsonb)
+          COALESCE(to_address, '[]'::jsonb) ||
+          COALESCE(cc_address, '[]'::jsonb) ||
+          COALESCE(bcc_address, '[]'::jsonb) ||
+          COALESCE(envelope_to, '[]'::jsonb)
         )->>'address' as address`;
 
     const addressNotNull = sent
       ? `from_address IS NOT NULL`
-      : `(to_address IS NOT NULL OR cc_address IS NOT NULL OR bcc_address IS NOT NULL)`;
+      : `(to_address IS NOT NULL OR cc_address IS NOT NULL OR bcc_address IS NOT NULL OR envelope_to IS NOT NULL)`;
 
     // Use address matching (from_address for sent, to/cc/bcc for received) rather
     // than the `sent` boolean flag, so self-emails appear in both views correctly.

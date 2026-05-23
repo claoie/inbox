@@ -214,3 +214,121 @@ describe("expungeDeletedMails — `updated` column refresh (regression for #456)
     expect(updateWhereCount).toBe(2);
   });
 });
+
+describe("getAccountStats — envelope_to inclusion in received address expansion", () => {
+  // Mails sent via listserv-style routing (e.g. GitHub notifications) carry
+  // a MIME `to` header that points at the list address (e.g.
+  // `<budget@noreply.github.com>`) and an SMTP-level `envelope_to` that
+  // points at the actual recipient sub-address (e.g. `<x@hoie.kim>`). If
+  // the received-side address expansion ignores envelope_to, those mails
+  // never surface in the per-account view — but the push badge counts
+  // them via the broader `getUnreadNotifications` query, so the FE shows
+  // 0 unread while the iOS badge shows N. Verified against prod on
+  // 2026-05-23: admin had badge=26 / FE=0 because 26 GitHub notification
+  // mails carried envelope_to=claoie@hoie.kim but MIME to=noreply.github.
+  let mailsSource: string;
+  let fnSource: string;
+
+  beforeAll(async () => {
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    mailsSource = await fs.readFile(
+      path.join(import.meta.dir, "mails.ts"),
+      "utf8"
+    );
+    const fnMatch = mailsSource.match(
+      /export const getAccountStats[\s\S]*?\n};/
+    );
+    if (!fnMatch) throw new Error("getAccountStats not found in mails.ts");
+    fnSource = fnMatch[0];
+  });
+
+  it("received-branch address expansion unions envelope_to with to/cc/bcc", () => {
+    // Locate the addressExpansion ternary's received branch — everything
+    // between `addressExpansion = sent ? <sent SQL>` and the final `;`,
+    // dropping the sent SQL portion via the backtick boundary.
+    const exprMatch = fnSource.match(
+      /const\s+addressExpansion\s*=\s*sent\s*\?\s*`[^`]*`\s*:\s*`([^`]*)`\s*;/
+    );
+    if (!exprMatch) throw new Error("addressExpansion ternary not found");
+    const receivedSql = exprMatch[1];
+    expect(receivedSql).toContain("to_address");
+    expect(receivedSql).toContain("cc_address");
+    expect(receivedSql).toContain("bcc_address");
+    expect(receivedSql).toContain("envelope_to");
+  });
+
+  it("received-branch null-check includes envelope_to", () => {
+    // Otherwise rows with only envelope_to populated (no MIME recipient
+    // headers, which happens for some listserv-style senders) would be
+    // filtered out before the address expansion even fires.
+    const exprMatch = fnSource.match(
+      /const\s+addressNotNull\s*=\s*sent\s*\?\s*`[^`]*`\s*:\s*`([^`]*)`\s*;/
+    );
+    if (!exprMatch) throw new Error("addressNotNull ternary not found");
+    const receivedSql = exprMatch[1];
+    expect(receivedSql).toContain("to_address IS NOT NULL");
+    expect(receivedSql).toContain("envelope_to IS NOT NULL");
+  });
+
+  it("sent-branch address expansion remains from_address only", () => {
+    // Don't accidentally widen the sent view — envelope_from has its own
+    // semantics (bounce path) and isn't symmetric with envelope_to here.
+    const exprMatch = fnSource.match(
+      /const\s+addressExpansion\s*=\s*sent\s*\?\s*`([^`]*)`/
+    );
+    if (!exprMatch) throw new Error("sent branch not found");
+    const sentSql = exprMatch[1];
+    expect(sentSql).toContain("from_address");
+    expect(sentSql).not.toContain("envelope_to");
+    expect(sentSql).not.toContain("envelope_from");
+  });
+});
+
+describe("getMailHeaders — envelope_to in received-branch address condition", () => {
+  // Companion to the getAccountStats change above. When getAccountStats
+  // surfaces a per-account row keyed on envelope_to, clicking it calls
+  // getMailHeaders with that address — which needs to find the mails by
+  // envelope_to too, not just MIME to/cc/bcc, or the list renders empty.
+  let mailsSource: string;
+  let fnSource: string;
+
+  beforeAll(async () => {
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    mailsSource = await fs.readFile(
+      path.join(import.meta.dir, "mails.ts"),
+      "utf8"
+    );
+    const fnMatch = mailsSource.match(
+      /export const getMailHeaders[\s\S]*?\n};/
+    );
+    if (!fnMatch) throw new Error("getMailHeaders not found in mails.ts");
+    fnSource = fnMatch[0];
+  });
+
+  it("received branch's addressCondition unions envelope_to with to/cc/bcc", () => {
+    // Source uses `${TO_ADDRESS}` template-literal substitution that expands
+    // to "to_address" at runtime; the static text contains the token.
+    const exprMatch = fnSource.match(
+      /addressCondition\s*=\s*options\.sent\s*\?\s*`[^`]*`\s*:\s*`([^`]*)`\s*;/
+    );
+    if (!exprMatch) throw new Error("addressCondition ternary not found");
+    const receivedSql = exprMatch[1];
+    expect(receivedSql).toContain("${TO_ADDRESS}");
+    expect(receivedSql).toContain("cc_address @>");
+    expect(receivedSql).toContain("bcc_address @>");
+    expect(receivedSql).toContain("envelope_to @>");
+  });
+
+  it("sent branch's addressCondition remains from_address only", () => {
+    const exprMatch = fnSource.match(
+      /addressCondition\s*=\s*options\.sent\s*\?\s*`([^`]*)`/
+    );
+    if (!exprMatch) throw new Error("sent branch not found");
+    const sentSql = exprMatch[1];
+    expect(sentSql).toContain("${FROM_ADDRESS}");
+    expect(sentSql).not.toContain("envelope_to");
+    expect(sentSql).not.toContain("envelope_from");
+  });
+});
