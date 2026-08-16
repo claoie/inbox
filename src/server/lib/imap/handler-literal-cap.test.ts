@@ -270,3 +270,45 @@ describe("IMAP command-line ceiling", () => {
     expect(dispatched[0].request.data.message).toBe(message);
   });
 });
+
+describe("IMAP literal-chain ceiling", () => {
+  it("ends the session on a literal chain no real command would send", async () => {
+    const { socket, dispatched } = makeHarness();
+
+    // Each declaration is individually under the per-literal cap, so nothing
+    // above bounds the chain: `pendingLiterals` and `pendingCommand` just keep
+    // growing. Only the header line of a command reaches the pipeline throttle,
+    // so a chain is not paced either.
+    socket.emit("data", Buffer.from("A1 LOGIN {1+}\r\n"));
+    await settle();
+    for (let i = 0; i < 200; i++) {
+      socket.emit("data", Buffer.from(`x {1+}\r\n`));
+      await new Promise((r) => setTimeout(r, 1));
+      if (socket.destroyed) break;
+    }
+    await settle();
+
+    expect(socket.writes).toEqual(["* BYE Command too long\r\n"]);
+    expect(socket.destroyed).toBe(true);
+    expect(dispatched).toEqual([]);
+  });
+
+  it("leaves a command with a real number of literals alone", async () => {
+    const { socket, dispatched } = makeHarness();
+
+    // LOGIN chains two — one per credential. The cap must sit far above the
+    // shapes conforming clients actually send.
+    for (const chunk of ["A1 LOGIN {5+}\r\n", "admin", " {8+}\r\n", "password\r\n"]) {
+      socket.emit("data", Buffer.from(chunk));
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    await settle();
+
+    expect(socket.destroyed).toBe(false);
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].request).toEqual({
+      type: "LOGIN",
+      data: { username: "admin", password: "password" }
+    });
+  });
+});

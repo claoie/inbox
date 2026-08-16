@@ -81,6 +81,20 @@ const MAX_LITERAL_BYTES = 8 * 1024;
 // of messages) with room to spare.
 const MAX_COMMAND_LINE_BYTES = 64 * 1024;
 
+// The per-literal cap alone does not bound a COMMAND: literal declarations
+// chain, so N declarations each under the cap still accumulate N payloads on
+// `pendingLiterals` and N line fragments on `pendingCommand`. Only the header
+// line of a command reaches `waitForCommandSlot()`, so a chain is not paced
+// either. Both are new surface — before literals were generalized, only APPEND
+// could hold literal state and it could not chain at all.
+//
+// No real command comes close to either bound. The most literals any command
+// this server implements takes is a handful (LOGIN's two credentials, RENAME's
+// two mailbox names, a SEARCH with several strings), and the only command that
+// carries megabytes is APPEND, whose single message literal is already capped.
+const MAX_LITERALS_PER_COMMAND = 64;
+const MAX_PENDING_COMMAND_BYTES = MAX_APPEND_LITERAL_BYTES + 64 * 1024;
+
 // Cap for the literal `commandText` is about to declare.
 const literalCapFor = (commandText: string): number =>
   commandVerb(commandText) === "APPEND"
@@ -481,6 +495,25 @@ export class ImapRequestHandler {
                   ? null
                   : LITERAL_DECLARATION.exec(line);
               if (chained) {
+                // A chain that has outgrown any real command is an accumulator
+                // attack, not a client the session can keep negotiating with, so
+                // it ends the session rather than answering `NO` and inviting the
+                // next one.
+                if (
+                  pendingLiterals.length >= MAX_LITERALS_PER_COMMAND ||
+                  pendingCommand.length + literalBytesNeeded >
+                    MAX_PENDING_COMMAND_BYTES
+                ) {
+                  logger.info("IMAP literal chain over cap; closing session", {
+                    component: "imap",
+                    literals: pendingLiterals.length,
+                    pendingBytes: pendingCommand.length,
+                    remote: `${socket.remoteAddress ?? "?"}:${socket.remotePort ?? 0}`
+                  });
+                  session.write("* BYE Command too long\r\n");
+                  if (!socket.destroyed) socket.destroy();
+                  return;
+                }
                 // Cap-check before mutating any state: the verb and the tag both
                 // come off the command assembled so far, not off this tail line.
                 if (
