@@ -337,8 +337,10 @@ export class ImapRequestHandler {
               buffer = Buffer.alloc(0);
               pendingCommand = null;
               pendingLiterals = [];
-              literalBytesNeeded = 0;
               awaitingLiteral = false;
+              literalBytesNeeded = 0;
+              discardBytesRemaining = 0;
+              discardToEndOfCommand = false;
               return;
             }
 
