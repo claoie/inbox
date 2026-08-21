@@ -10,6 +10,7 @@ COPY src src
 COPY scripts scripts
 COPY public public
 COPY index.html ./
+COPY .env.example ./
 
 RUN bun install
 RUN bun run typecheck
