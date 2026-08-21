@@ -1,9 +1,34 @@
 import { describe, it, expect } from "bun:test";
-import { readdirSync, readFileSync, statSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
 
 const REPO_ROOT = path.resolve(import.meta.dir, "../../..");
-const SRC_ROOT = path.join(REPO_ROOT, "src");
+/**
+ * The two directions ask different questions, so they scan different trees.
+ *
+ * "Is every read documented?" is about the knobs an operator supplies to the
+ * running server, which is `src/`. A one-off migration script under `scripts/`
+ * has its own env surface that has no business in the deployment's env file.
+ *
+ * "Is this entry dead?" is about whether anything reads the name at all, so it
+ * spans both — otherwise the guard would recommend deleting an entry a script
+ * still depends on.
+ */
+const SERVER_ROOTS = [path.join(REPO_ROOT, "src")];
+const ALL_ROOTS = [path.join(REPO_ROOT, "src"), path.join(REPO_ROOT, "scripts")];
+
+/**
+ * Names no static extraction can attribute to a read, each with the reason it
+ * is nonetheless live. An entry is a claim someone checked, which is the point:
+ * a variable whose only appearance is inside a log string or a comment would
+ * otherwise absolve itself, and that is exactly how a dead entry survives.
+ */
+const INDIRECTLY_READ: Record<string, string> = {
+  PUSH_VAPID_PUBLIC_KEY:
+    "push.ts receives process.env as its `env` parameter and destructures it there",
+  PUSH_VAPID_PRIVATE_KEY:
+    "push.ts receives process.env as its `env` parameter and destructures it there",
+};
 
 const sourceFiles = (dir: string): string[] =>
   readdirSync(dir).flatMap((entry) => {
@@ -13,78 +38,101 @@ const sourceFiles = (dir: string): string[] =>
     return [full];
   });
 
-/**
- * `process.env.NAME` on the right-hand side only. `config.ts` *assigns*
- * `process.env.NODE_PATH`, which is not a configuration surface an operator
- * supplies, so an assignment must not be counted as a read.
- */
-const directReads = (source: string): string[] =>
-  [...source.matchAll(/process\.env\.([A-Z_][A-Z0-9_]*)\s*(?!=[^=])/g)]
-    .filter((m) => !/^\s*=[^=]/.test(source.slice(m.index! + m[0].length)))
-    .map((m) => m[1]);
+const ASSIGNMENT = /^\s*(?:\?\?|\|\||&&|\+|-|\*|\/|%|\*\*)?=(?!=)/;
 
 /**
- * `const { A, B = "fallback" } = process.env`, single- or multi-line. Missing
- * this form is how a hand-run audit concludes that `ADMIN_PASSWORD` and every
- * `POSTGRES_*` variable are documented-but-unread.
+ * `process.env.NAME`, `process.env["NAME"]` and their `?.` forms. The name is
+ * captured by a whole-identifier class with no lookahead inside it, so the
+ * match cannot backtrack into a truncated prefix when the text that follows is
+ * rejected — a phantom name would fail this suite on a variable that does not
+ * exist.
+ *
+ * Writes are excluded, whatever their operator: a variable the server assigns
+ * to itself is not a surface an operator supplies.
  */
-const destructuredReads = (source: string): string[] =>
-  [...source.matchAll(/\{([^{}]*)\}\s*=\s*process\.env/g)].flatMap((m) =>
-    m[1]
-      .split(",")
-      .map((part) => part.split(/[=:]/)[0].trim())
-      .filter((name) => /^[A-Z_][A-Z0-9_]*$/.test(name))
-  );
+const ENV_ACCESS =
+  /(delete\s+)?process\.env\s*(?:\?\.|\.)\s*([A-Za-z_$][A-Za-z0-9_$]*)|(delete\s+)?process\.env\s*(?:\?\.)?\[\s*["']([^"']*)["']\s*\]/g;
 
-const readVariables = (): Set<string> => {
-  const names = new Set<string>();
-  for (const file of sourceFiles(SRC_ROOT)) {
-    const source = readFileSync(file, "utf8");
-    for (const name of directReads(source)) names.add(name);
-    for (const name of destructuredReads(source)) names.add(name);
+const directReads = (source: string): string[] => {
+  const names: string[] = [];
+  for (const match of source.matchAll(ENV_ACCESS)) {
+    if (match[1] || match[3]) continue;
+    const name = match[2] ?? match[4];
+    if (!name) continue;
+    if (ASSIGNMENT.test(source.slice(match.index + match[0].length))) continue;
+    names.push(name);
   }
   return names;
 };
 
-const documentedVariables = (): Set<string> => {
-  const example = readFileSync(path.join(REPO_ROOT, ".env.example"), "utf8");
-  return new Set(
-    [...example.matchAll(/^#?\s*([A-Z_][A-Z0-9_]*)=/gm)].map((m) => m[1])
-  );
-};
-
 /**
- * The reverse direction asks "is this name dead?", not "how is it read?", so a
- * bare occurrence check is the right strength. `push.ts` takes `process.env` as
- * an injected `env` argument and destructures it one indirection away — no
- * `process.env.X` extraction can follow that, but the identifier is still
- * plainly there, and a variable that appears nowhere in source is dead.
+ * `const { A, B = "fallback" } = process.env`, single- or multi-line. Scans
+ * backwards from the matching brace rather than matching `[^{}]*`, so a default
+ * value that itself contains braces does not silently yield nothing — an
+ * under-captured read reads as an undocumented variable one direction and as a
+ * dead entry the other.
  */
-const mentionedAnywhere = (): Set<string> => {
-  const names = new Set<string>();
-  for (const file of sourceFiles(SRC_ROOT)) {
-    for (const match of readFileSync(file, "utf8").matchAll(
-      /\b[A-Z_][A-Z0-9_]{2,}\b/g
-    )) {
-      names.add(match[0]);
+const destructuredReads = (source: string): string[] => {
+  const names: string[] = [];
+  for (const match of source.matchAll(/\}\s*=\s*process\.env\b/g)) {
+    const close = source.indexOf("}", match.index);
+    let depth = 0;
+    let open = -1;
+    for (let i = close; i >= 0; i--) {
+      if (source[i] === "}") depth += 1;
+      else if (source[i] === "{") {
+        depth -= 1;
+        if (depth === 0) {
+          open = i;
+          break;
+        }
+      }
+    }
+    if (open === -1) continue;
+    for (const part of source.slice(open + 1, close).split(",")) {
+      const name = part.split(/[=:]/)[0].trim();
+      if (/^[A-Z_][A-Z0-9_]*$/.test(name)) names.push(name);
     }
   }
   return names;
 };
 
+const readVariables = (roots: string[]): Set<string> => {
+  const names = new Set<string>();
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    for (const file of sourceFiles(root)) {
+      const source = readFileSync(file, "utf8");
+      for (const name of directReads(source)) names.add(name);
+      for (const name of destructuredReads(source)) names.add(name);
+    }
+  }
+  return names;
+};
+
+const documentedVariables = (): Set<string> =>
+  new Set(
+    [
+      ...readFileSync(path.join(REPO_ROOT, ".env.example"), "utf8").matchAll(
+        /^#?\s*([A-Z_][A-Z0-9_]*)=/gm
+      ),
+    ].map((match) => match[1])
+  );
+
 describe(".env.example", () => {
   it("documents every variable the server reads", () => {
     const documented = documentedVariables();
-    const undocumented = [...readVariables()]
+    const undocumented = [...readVariables(SERVER_ROOTS)]
+      .filter((name) => /^[A-Z_][A-Z0-9_]*$/.test(name))
       .filter((name) => !documented.has(name))
       .sort();
     expect(undocumented).toEqual([]);
   });
 
-  it("documents no variable that appears nowhere in the source", () => {
-    const mentioned = mentionedAnywhere();
+  it("documents no variable that is never read", () => {
+    const read = readVariables(ALL_ROOTS);
     const dead = [...documentedVariables()]
-      .filter((name) => !mentioned.has(name))
+      .filter((name) => !read.has(name) && !(name in INDIRECTLY_READ))
       .sort();
     expect(dead).toEqual([]);
   });
