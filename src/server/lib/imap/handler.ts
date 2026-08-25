@@ -56,18 +56,19 @@ const commandTag = (input: string): string =>
 const commandVerb = (input: string): string =>
   /^\s*\S+\s+(\S+)/.exec(input)?.[1]?.toUpperCase() ?? "";
 
-// Literal ceilings (#837). Without them a single unauthenticated socket pins
-// arbitrary heap: `a1 APPEND INBOX {999999999+}` makes the drain hold a
-// gigabyte, and the buffer fills before LOGIN is ever parsed. Against the
-// container's memory ceiling one connection takes IMAP down for every user.
+// Literal ceilings. Without them a single unauthenticated socket pins arbitrary
+// heap: `a1 APPEND INBOX {999999999+}` makes the drain hold a gigabyte, and the
+// buffer fills before LOGIN is ever parsed. Against the container's memory
+// ceiling one connection takes IMAP down for every user.
 //
-// APPEND carries a whole RFC 5322 message, so its ceiling tracks the size
-// policy the app already enforces on the surface users actually compose
-// through: `fileSize: 25 * 1024 * 1024` in `http/index.ts`. That limit counts
-// DECODED attachment bytes, while an APPEND literal counts the ENCODED
-// message — base64 inflates by 4/3 plus line folding — so an aligned ceiling
-// has to carry the encoding overhead, or APPEND would reject a message the
-// app's own upload path just accepted. 35 MiB is 25 MiB × 1.4.
+// APPEND carries a whole RFC 5322 message, so its ceiling is the largest
+// message a client may file into Sent or Drafts. Nothing else in the process
+// bounds a message: the composer's `fileSize: 25 * 1024 * 1024` is per FILE
+// and no limit caps the file count, and the relay declares no SIZE ceiling of
+// its own — so this number is a judgment about how much one socket may hold,
+// not a value derived from a limit that already exists. 35 MiB clears the
+// message sizes mainstream providers accept, with the memory cost of the
+// worst case being one payload per connected socket.
 const MAX_APPEND_LITERAL_BYTES = 35 * 1024 * 1024;
 
 // Every other literal is a mailbox name, a credential, or a SEARCH string.
@@ -213,13 +214,13 @@ export class ImapRequestHandler {
     let awaitingLiteral = false;
     let literalBytesNeeded = 0;
 
-    // Over-cap LITERAL+ recovery state (#837). A non-synchronizing `{N+}`
-    // payload is already inbound by the time the declaration is read, so it
-    // cannot be refused — only counted and thrown away. `discardToEndOfCommand`
-    // then swallows the rest of that command line, because resuming the line
+    // Over-cap LITERAL+ recovery state. A non-synchronizing `{N+}` payload is
+    // already inbound by the time the declaration is read, so it cannot be
+    // refused — only counted and thrown away. `discardToEndOfCommand` then
+    // swallows the rest of that command line, because resuming the line
     // splitter mid-command would hand the remaining arguments to the parser as
-    // a fresh command — which is exactly how a LOGIN password ended up in the
-    // journal and on the wire in #805.
+    // a fresh command, putting a LOGIN password in the journal and on the
+    // wire.
     let discardBytesRemaining = 0;
     let discardToEndOfCommand = false;
 
@@ -256,8 +257,8 @@ export class ImapRequestHandler {
       }
     };
 
-    // Enforce the literal ceiling on a declaration (#837). Returns true when
-    // the declaration was refused, in which case the caller must NOT enter
+    // Enforce the literal ceiling on a declaration. Returns true when the
+    // declaration was refused, in which case the caller must NOT enter
     // accumulation — the whole point is that the octets never get held.
     const refuseOversizedLiteral = (
       commandText: string,
@@ -344,7 +345,7 @@ export class ImapRequestHandler {
               return;
             }
 
-            // Recovery from an over-cap LITERAL+ declaration (#837): swallow the
+            // Recovery from an over-cap LITERAL+ declaration: swallow the
             // announced octets, then the remainder of that command line, without
             // holding any of it. Runs ahead of literal accumulation so the
             // discarded payload can never reach `pendingLiterals`.
@@ -448,23 +449,7 @@ export class ImapRequestHandler {
             }
 
             const lineEnd = buffer.indexOf("\r\n");
-            // No terminator yet — but a line that has outgrown the longest legal
-            // command is not a command in progress, it is a peer streaming bytes
-            // to fill the heap (#837). No literal is involved, so nothing above
-            // bounds it: `buffer` just grows until the process dies, and it needs
-            // no authentication to start. End the session instead.
-            if (lineEnd === -1) {
-              if (buffer.length > MAX_COMMAND_LINE_BYTES) {
-                logger.info("IMAP command line over cap; closing session", {
-                  component: "imap",
-                  bufferedBytes: buffer.length,
-                  remote: `${socket.remoteAddress ?? "?"}:${socket.remotePort ?? 0}`
-                });
-                session.write("* BYE Command line too long\r\n");
-                if (!socket.destroyed) socket.destroy();
-              }
-              return;
-            }
+            if (lineEnd === -1) return;
 
             const line = buffer.subarray(0, lineEnd).toString("utf8");
             buffer = buffer.subarray(lineEnd + 2);
@@ -497,19 +482,29 @@ export class ImapRequestHandler {
                   ? null
                   : LITERAL_DECLARATION.exec(line);
               if (chained) {
+                const declaredBytes = parseInt(chained[1], 10);
+                // The payloads live on `pendingLiterals`; `pendingCommand` keeps
+                // only the `{N}` markers, some thirty octets per link. Measuring
+                // the command text therefore measures none of what is held, so
+                // the byte ceiling has to sum the payloads themselves — plus the
+                // declaration about to be accepted, whose octets are already in
+                // flight under LITERAL+.
+                const heldBytes =
+                  pendingLiterals.reduce((n, s) => n + Buffer.byteLength(s), 0) +
+                  Buffer.byteLength(pendingCommand) +
+                  declaredBytes;
                 // A chain that has outgrown any real command is an accumulator
                 // attack, not a client the session can keep negotiating with, so
                 // it ends the session rather than answering `NO` and inviting the
                 // next one.
                 if (
                   pendingLiterals.length >= MAX_LITERALS_PER_COMMAND ||
-                  pendingCommand.length + literalBytesNeeded >
-                    MAX_PENDING_COMMAND_BYTES
+                  heldBytes > MAX_PENDING_COMMAND_BYTES
                 ) {
                   logger.info("IMAP literal chain over cap; closing session", {
                     component: "imap",
                     literals: pendingLiterals.length,
-                    pendingBytes: pendingCommand.length,
+                    pendingBytes: heldBytes,
                     remote: `${socket.remoteAddress ?? "?"}:${socket.remotePort ?? 0}`
                   });
                   session.write("* BYE Command too long\r\n");
@@ -519,16 +514,12 @@ export class ImapRequestHandler {
                 // Cap-check before mutating any state: the verb and the tag both
                 // come off the command assembled so far, not off this tail line.
                 if (
-                  refuseOversizedLiteral(
-                    pendingCommand,
-                    parseInt(chained[1], 10),
-                    !chained[2]
-                  )
+                  refuseOversizedLiteral(pendingCommand, declaredBytes, !chained[2])
                 ) {
                   continue;
                 }
                 pendingCommand += line.trimEnd();
-                literalBytesNeeded = parseInt(chained[1], 10);
+                literalBytesNeeded = declaredBytes;
                 awaitingLiteral = true;
                 if (!chained[2]) session.write("+ go ahead\r\n");
                 continue;
@@ -640,6 +631,24 @@ export class ImapRequestHandler {
       }
     };
 
+    // Octets buffered that cannot become a command however long the session
+    // waits. Everything the drain has agreed to receive is excluded — an
+    // announced literal payload, or the tail of an over-cap declaration being
+    // counted out — and of what remains, only the run past the last CRLF is
+    // still an unfinished line.
+    const unterminatedTailBytes = (): number => {
+      const awaited =
+        discardBytesRemaining > 0
+          ? discardBytesRemaining
+          : awaitingLiteral
+            ? literalBytesNeeded
+            : 0;
+      if (buffer.length <= awaited) return 0;
+      const tail = buffer.subarray(awaited);
+      const lastLineEnd = tail.lastIndexOf("\r\n");
+      return lastLineEnd === -1 ? tail.length : tail.length - (lastLineEnd + 2);
+    };
+
     socket.on("data", (data) => {
       // Sync-only: append to the shared buffer, then wake the drain.
       // The `data` event fires synchronously per TCP segment; any await
@@ -653,6 +662,25 @@ export class ImapRequestHandler {
             : Buffer.concat([buffer as Uint8Array, data as Uint8Array]);
       } catch (error) {
         logger.error("Error appending data to buffer", { component: "imap" }, error);
+        if (!socket.destroyed) socket.destroy();
+        return;
+      }
+
+      // A line that has outgrown the longest legal command is not a command in
+      // progress, it is a peer streaming bytes to fill the heap. The check has
+      // to sit here rather than in the drain: `drainCommands` returns early
+      // while a drain is already in flight, and every `await` in that loop — a
+      // deliberate authentication-failure delay, the pipeline throttle, a DB
+      // round-trip — parks it while this handler keeps concatenating. Growth
+      // happens here, so the bound belongs here, and it needs no
+      // authentication to start.
+      if (unterminatedTailBytes() > MAX_COMMAND_LINE_BYTES) {
+        logger.info("IMAP command line over cap; closing session", {
+          component: "imap",
+          bufferedBytes: buffer.length,
+          remote: `${socket.remoteAddress ?? "?"}:${socket.remotePort ?? 0}`
+        });
+        session.write("* BYE Command line too long\r\n");
         if (!socket.destroyed) socket.destroy();
         return;
       }

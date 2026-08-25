@@ -1,5 +1,5 @@
 /**
- * Session-buffer ceilings (hoiekim/inbox#837).
+ * Session-buffer ceilings.
  *
  * The drain loop held whatever a client declared. Two unauthenticated ways to
  * pin arbitrary heap on one TCP socket:
@@ -10,11 +10,17 @@
  *     returns, leaving everything buffered, and `buffer` grows until the
  *     process dies.
  *
- * Both fill the buffer before `LOGIN` is ever parsed, so the cost to an
+ *  3) A chain of declarations, each individually under its own cap, whose
+ *     payloads accumulate on the pending-literal state until the process
+ *     dies — bounded by a link count AND by the octets actually held, since
+ *     four large payloads outweigh sixty small ones.
+ *
+ * All of them fill the buffer before `LOGIN` is ever parsed, so the cost to an
  * attacker is one socket and the cost to everyone else is the whole IMAP
  * server. These tests pin the ceilings and, just as importantly, pin that
- * refusing a literal does not resurrect #805 — the octets of a refused
- * LITERAL+ payload must be discarded, never re-read as commands.
+ * refusing a literal does not resurrect the credential-echo defect — the
+ * octets of a refused LITERAL+ payload must be discarded, never re-read as
+ * commands.
  */
 
 import { describe, it, expect, spyOn } from "bun:test";
@@ -49,12 +55,13 @@ function makeMockSocket() {
   return socket;
 }
 
-function makeHarness() {
+function makeHarness(onRequest?: () => Promise<void>) {
   const handler = new ImapRequestHandler();
   const socket = makeMockSocket();
   const dispatched: { tag: string; request: ImapRequest }[] = [];
   handler.handleRequest = async (tag, request) => {
     dispatched.push({ tag, request });
+    if (onRequest) await onRequest();
   };
   handler.setSocket(socket as never);
   return { socket, dispatched };
@@ -70,6 +77,8 @@ const settle = async () => {
 const SMALL_CAP = 8 * 1024;
 const APPEND_CAP = 35 * 1024 * 1024;
 const LINE_CAP = 64 * 1024;
+const CHAIN_CAP = 64;
+const PENDING_CAP = APPEND_CAP + 64 * 1024;
 
 describe("IMAP literal ceiling", () => {
   it("refuses an over-cap synchronizing literal without prompting for it", async () => {
@@ -149,10 +158,10 @@ describe("IMAP literal ceiling", () => {
       const { socket, dispatched } = makeHarness();
       debugSpy.mockClear();
 
-      // The #805 hazard, re-entered through the refusal path: if the discard
-      // stopped at the payload and resumed the line splitter mid-command, the
-      // remaining arguments would be parsed as a command of their own — and
-      // for LOGIN those arguments are the credentials.
+      // The credential-echo hazard, re-entered through the refusal path: if
+      // the discard stopped at the payload and resumed the line splitter
+      // mid-command, the remaining arguments would be parsed as a command of
+      // their own — and for LOGIN those arguments are the credentials.
       const declared = SMALL_CAP + 16;
       socket.emit("data", Buffer.from(`A1 LOGIN {${declared}+}\r\n`));
       await settle();
@@ -250,6 +259,33 @@ describe("IMAP command-line ceiling", () => {
     expect(dispatched[0].request.type).toBe("UID");
   });
 
+  it("ends the session while a command is parked mid-drain", async () => {
+    let release = () => {};
+    const parked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { socket, dispatched } = makeHarness(() => parked);
+
+    // The drain runs one command at a time, and every `await` in that loop —
+    // the authentication-failure delay on a bad LOGIN, the pipeline throttle,
+    // any DB round-trip — parks it while `data` events keep appending. That
+    // window is exactly when an unauthenticated flood is cheapest, and a cap
+    // that only runs inside the drain is not watching during it.
+    socket.emit("data", Buffer.from("A1 NOOP\r\n"));
+    await settle();
+    expect(dispatched.map((d) => d.tag)).toEqual(["A1"]);
+
+    socket.emit("data", Buffer.from("A2 SELECT "));
+    socket.emit("data", Buffer.alloc(LINE_CAP + 1, 0x41));
+    await settle();
+
+    expect(socket.writes).toEqual(["* BYE Command line too long\r\n"]);
+    expect(socket.destroyed).toBe(true);
+
+    release();
+    await settle();
+  });
+
   it("does not fire the line cap while a large APPEND payload is arriving", async () => {
     const { socket, dispatched } = makeHarness();
 
@@ -287,6 +323,40 @@ describe("IMAP literal-chain ceiling", () => {
       if (socket.destroyed) break;
     }
     await settle();
+
+    expect(socket.writes).toEqual(["* BYE Command too long\r\n"]);
+    expect(socket.destroyed).toBe(true);
+    expect(dispatched).toEqual([]);
+  });
+
+  it("ends the session on chained payloads that outgrow the byte ceiling", async () => {
+    const { socket, dispatched } = makeHarness();
+
+    // The chain cap counts links, so a chain of tiny literals returns the same
+    // verdict whether or not the BYTE ceiling is armed. This drives the shape
+    // only the byte ceiling can catch: payloads large enough that the session
+    // has to die while the link count is still single digits.
+    const payload = Buffer.alloc(8 * 1024 * 1024, 0x79);
+    const declaration = Buffer.from(` {${payload.length}+}\r\n`);
+
+    socket.emit("data", Buffer.from(`a1 APPEND INBOX {${payload.length}+}\r\n`));
+    await settle();
+
+    // Sending only as many links as the byte ceiling can hold is what makes
+    // this fixture discriminate: the count cap cannot fire inside that many
+    // links, so a session still alive at the end is a session whose byte
+    // ceiling is inert.
+    const linksToCeiling = Math.ceil(PENDING_CAP / payload.length);
+    expect(linksToCeiling).toBeLessThan(CHAIN_CAP);
+
+    // Each declaration rides in its payload's last segment, so the buffer is
+    // never empty when the payload is consumed and the command is never
+    // dispatched as complete. The verb stays APPEND, so every link inherits
+    // the large per-literal cap and none of them is refused on its own size.
+    for (let i = 0; i < linksToCeiling && !socket.destroyed; i++) {
+      socket.emit("data", Buffer.concat([payload, declaration]));
+      await settle();
+    }
 
     expect(socket.writes).toEqual(["* BYE Command too long\r\n"]);
     expect(socket.destroyed).toBe(true);
