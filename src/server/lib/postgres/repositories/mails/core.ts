@@ -120,6 +120,13 @@ export interface SaveMailInput {
     deleted?: boolean;
   };
   mailbox?: string;
+  /**
+   * A domain view this mail also belongs to (`INBOX`), recorded in
+   * `mail_mailbox_uid` against `uid_domain`. Independent of `mailbox` above,
+   * which names the mapped destination and carries `uid_mailbox`: a received
+   * mail belongs to its per-account view and to INBOX at once.
+   */
+  domain_mailbox?: string;
 }
 
 export const saveMail = async (
@@ -223,6 +230,14 @@ export const saveMail = async (
           input.uid_mailbox as number
         );
       }
+      if (input.domain_mailbox && (input.uid_domain ?? 0) > 0) {
+        await writeMailboxUid(
+          input.user_id,
+          input.domain_mailbox,
+          inserted_id,
+          input.uid_domain as number
+        );
+      }
       // Mapped-utility invariant sync — see `syncMappedPivotsForRow`. A
       // fresh row has no prior pivot, so we only issue the write when the
       // flag is TRUE (pass `undefined` otherwise to skip).
@@ -303,6 +318,18 @@ export const saveMail = async (
           input.mailbox,
           existing.mail_id,
           input.uid_mailbox as number
+        );
+      }
+      // The domain-view mapping row carries the surviving row's own
+      // `uid_domain`, not the caller's fresh reservation — that one belongs to
+      // an INSERT that never happened, and a mapping row holding it would
+      // address no `mails` row.
+      if (input.domain_mailbox && existing.uid_domain > 0) {
+        await writeMailboxUid(
+          input.user_id,
+          input.domain_mailbox,
+          existing.mail_id,
+          existing.uid_domain
         );
       }
       // Mirror the placement flip into the mapped-utility pivots — same

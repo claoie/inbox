@@ -444,10 +444,15 @@ describe("expungeDeletedMails — `updated` column refresh (regression for #456,
     expect(saveSource).toMatch(/writeMailboxUid\s*\(/);
     expect(saveSource).toMatch(/input\.mailbox/);
     expect(saveSource).toMatch(/uid_mailbox/);
-    // Guards two call sites — INSERT success + 23505 conflict merge.
+    // Two mailboxes can be recorded per row — the mapped destination against
+    // `uid_mailbox`, and the domain view against `uid_domain` — on each of the
+    // two branches (INSERT success + 23505 conflict merge).
     const writeMailboxUidCount =
       (saveSource.match(/writeMailboxUid\s*\(/g) ?? []).length;
-    expect(writeMailboxUidCount).toBe(2);
+    expect(writeMailboxUidCount).toBe(4);
+    const mappedCount = (saveSource.match(/input\.mailbox,/g) ?? []).length;
+    const domainCount = (saveSource.match(/input\.domain_mailbox,/g) ?? []).length;
+    expect([mappedCount, domainCount]).toEqual([2, 2]);
   });
 
   it("saveMail's outer catch rethrows on non-23505 errors so SMTP replies 5xx", () => {

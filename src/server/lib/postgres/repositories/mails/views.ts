@@ -9,8 +9,10 @@ import { IS_SPAM, DRAFT } from "../../models";
  *    `Sent Messages/accounts/<local-part>`) and user-created boxes. Membership
  *    is a row in `mail_mailbox_uid`, which also carries the per-box UID.
  *  - **Domain views** — `INBOX`, the unified `Sent Messages`, and the utility
- *    views below. They hold no mapping rows: membership is a predicate over
- *    `mails`, and UIDs come from `mails.uid_domain`.
+ *    views below. Membership is a predicate over `mails` and UIDs come from
+ *    `mails.uid_domain`. `INBOX` additionally carries a mapping row per member,
+ *    written by the paths that file a mail into the INBOX tree and holding that
+ *    same `uid_domain`; no read consults it.
  *
  * The rules live here rather than in `imap.ts` so `counters.ts` can apply the
  * same branch without importing the module that imports it.
@@ -21,6 +23,13 @@ import { IS_SPAM, DRAFT } from "../../models";
  */
 
 const INBOX_ACCOUNTS_PREFIX = "INBOX/accounts/";
+
+/**
+ * The name `INBOX` membership is recorded under in `mail_mailbox_uid`. Matched
+ * case-insensitively on the way in, per RFC 3501 §5.1, and stored in this
+ * spelling — the one `canonicalMailbox` produces on the IMAP side.
+ */
+export const INBOX_VIEW = "INBOX";
 
 /**
  * Flag-derived views over the user's whole domain, mirroring folders the web
@@ -68,6 +77,25 @@ export const usesDomainUidSpace = (mailbox: string | null): boolean =>
 
 export const isInboxTree = (mailbox: string | null, sent: boolean): boolean =>
   !sent && (mailbox === null || mailbox.startsWith(INBOX_ACCOUNTS_PREFIX));
+
+/**
+ * The domain view a write into `destination` records membership under, or
+ * `undefined` for a destination outside the INBOX tree. `destination` is the
+ * box the write names — the wire box of an IMAP `COPY` / `MOVE` / `APPEND`,
+ * and the per-account view of an SMTP delivery. The read-side twin is
+ * `isInboxTree`, which spells the unified view `null` because a domain view
+ * has no name to select on; a mapping row does, so this one takes it as a
+ * string.
+ */
+export const domainViewForDestination = (
+  destination: string,
+  sent: boolean
+): string | undefined => {
+  const isInboxTreeDestination =
+    destination.toUpperCase() === INBOX_VIEW ||
+    destination.startsWith(INBOX_ACCOUNTS_PREFIX);
+  return !sent && isInboxTreeDestination ? INBOX_VIEW : undefined;
+};
 
 export const membershipFilter = (
   mailbox: string | null,

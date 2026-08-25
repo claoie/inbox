@@ -17,6 +17,7 @@ import {
 import {
   saveMail as pgSaveMail,
   SaveMailInput,
+  INBOX_VIEW,
   getDomainUidNext as pgGetDomainUidNext,
   getAccountUidNext as pgGetAccountUidNext,
 } from "../postgres/repositories/mails";
@@ -155,6 +156,10 @@ export const saveMail = async (
     spam_score: spamResult?.score ?? 0,
     spam_reasons: spamResult?.reasons ?? null,
     is_spam: spamResult?.isSpam ?? false,
+    // Received mail is a member of INBOX; the per-account view above is a
+    // sub-view beneath it. Sent mail files under the sent lane, which records
+    // no mapping row.
+    domain_mailbox: mail.sent ? undefined : INBOX_VIEW,
   };
 
   try {

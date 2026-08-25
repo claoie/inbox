@@ -21,6 +21,7 @@ import {
   getUidNext as pgGetUidNext,
   UidScope,
   SaveMailInput,
+  domainViewForDestination,
   SetMailFlagsResult,
   StoreOperationType,
 } from "../postgres/repositories/mails";
@@ -611,9 +612,11 @@ export class Store {
    * Store a new mail message. `destination` is the box the write names
    * (`COPY dest`, `MOVE dest`, `APPEND target`); it decides two things:
    *
-   * - **Mapping.** Only a mapped destination gets a `mail_mailbox_uid` row.
-   *   Domain-scoped destinations (INBOX, unified `Sent Messages`, the utility
-   *   folders) enumerate by `uid_domain` and record no mapping.
+   * - **Mapping.** Only a mapped destination gets a `mail_mailbox_uid` row
+   *   carrying `uid_mailbox`. Domain-scoped destinations (INBOX, unified
+   *   `Sent Messages`, the utility folders) enumerate by `uid_domain`; of
+   *   those, a destination in the INBOX tree records a second mapping row
+   *   holding that `uid_domain`.
    * - **Placement.** A utility folder selects its rows by flag, so a write that
    *   names one sets that flag here rather than relying on the client to have
    *   sent it — an APPEND to `Drafts` without `\Draft` would otherwise land
@@ -624,6 +627,9 @@ export class Store {
       const placement = destination ? utilityPlacement(destination) : undefined;
       const mailbox =
         destination && !isDomainScoped(destination) ? destination : undefined;
+      const domainMailbox = destination
+        ? domainViewForDestination(destination, !!mail.sent)
+        : undefined;
       const input: SaveMailInput = {
         user_id: this.user.id,
         message_id: mail.messageId,
@@ -654,6 +660,7 @@ export class Store {
         uid_domain: mail.uid?.domain,
         uid_mailbox: mail.uid?.account,
         mailbox,
+        domain_mailbox: domainMailbox,
         placement,
       };
 
