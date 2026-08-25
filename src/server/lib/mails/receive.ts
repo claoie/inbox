@@ -156,9 +156,9 @@ export const saveMail = async (
     spam_score: spamResult?.score ?? 0,
     spam_reasons: spamResult?.reasons ?? null,
     is_spam: spamResult?.isSpam ?? false,
-    // Received mail is a member of INBOX; the per-account view above is a
-    // sub-view beneath it. Sent mail files under the sent lane, which records
-    // no mapping row.
+    // Received mail is in the INBOX tree; the per-account view above is a
+    // sub-view beneath it, and records its own row against `uid_mailbox`. The
+    // sent lane's own domain view is untracked.
     domain_mailbox: mail.sent ? undefined : INBOX_VIEW,
   };
 

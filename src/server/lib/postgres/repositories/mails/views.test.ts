@@ -191,9 +191,9 @@ describe("domainViewForDestination — which writes record INBOX membership", ()
   });
 
   it("agrees with the read-side twin on every box both can name", () => {
-    // `isInboxTree` decides which rows INBOX shows; this decides which rows
-    // record that membership. A box the first counts and the second skips is a
-    // mail INBOX shows with no mapping row to prove it.
+    // `isInboxTree` decides which boxes apply the INBOX predicate; this decides
+    // which writes record a row under INBOX. A box the first counts and the
+    // second skips is a mail INBOX can show with no row to select it by.
     const cases: Array<[string, string | null]> = [
       ["INBOX", null],
       ["INBOX/accounts/admin", "INBOX/accounts/admin"],

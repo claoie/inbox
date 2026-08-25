@@ -18,6 +18,7 @@ import {
   syncMailboxPivot,
   writeMailboxUid,
 } from "./counters";
+import { decideMappingWrites, type MappingWrite } from "./mapping-decisions";
 import {
   computeFullMessageSize,
   type FetchMailInput,
@@ -129,6 +130,26 @@ export interface SaveMailInput {
   domain_mailbox?: string;
 }
 
+/**
+ * Issues the mapping writes for one row and returns the UID persisted for the
+ * mapped destination, which `storeMail` reconciles onto `mail.uid.account`.
+ * The rows are independent, so the round trips overlap.
+ */
+const recordMappings = async (
+  user_id: string,
+  mail_id: string,
+  writes: MappingWrite[],
+  mappedDestination: string | undefined
+): Promise<number | undefined> => {
+  const persisted = await Promise.all(
+    writes.map(async ({ mailbox, uid }) => ({
+      mailbox,
+      uid: await writeMailboxUid(user_id, mailbox, mail_id, uid),
+    }))
+  );
+  return persisted.find(({ mailbox }) => mailbox === mappedDestination)?.uid;
+};
+
 export const saveMail = async (
   input: SaveMailInput
 ): Promise<{ _id: string; uid_mailbox?: number; uid_domain?: number } | undefined> => {
@@ -221,23 +242,18 @@ export const saveMail = async (
     const row = await mailsTable.insert(data, [MAIL_ID]);
     if (row) {
       const inserted_id = row[MAIL_ID] as string;
-      let persistedUid: number | undefined;
-      if (input.mailbox && (input.uid_mailbox ?? 0) > 0) {
-        persistedUid = await writeMailboxUid(
-          input.user_id,
-          input.mailbox,
-          inserted_id,
-          input.uid_mailbox as number
-        );
-      }
-      if (input.domain_mailbox && (input.uid_domain ?? 0) > 0) {
-        await writeMailboxUid(
-          input.user_id,
-          input.domain_mailbox,
-          inserted_id,
-          input.uid_domain as number
-        );
-      }
+      const persistedUid = await recordMappings(
+        input.user_id,
+        inserted_id,
+        decideMappingWrites({
+          mailbox: input.mailbox,
+          uid_mailbox: input.uid_mailbox,
+          domain_mailbox: input.domain_mailbox,
+          uid_domain: input.uid_domain,
+          sent: input.sent ?? false,
+        }),
+        input.mailbox
+      );
       // Mapped-utility invariant sync — see `syncMappedPivotsForRow`. A
       // fresh row has no prior pivot, so we only issue the write when the
       // flag is TRUE (pass `undefined` otherwise to skip).
@@ -311,27 +327,22 @@ export const saveMail = async (
         );
       }
 
-      let persistedUid: number | undefined;
-      if (input.mailbox && (input.uid_mailbox ?? 0) > 0) {
-        persistedUid = await writeMailboxUid(
-          input.user_id,
-          input.mailbox,
-          existing.mail_id,
-          input.uid_mailbox as number
-        );
-      }
-      // The domain-view mapping row carries the surviving row's own
-      // `uid_domain`, not the caller's fresh reservation — that one belongs to
-      // an INSERT that never happened, and a mapping row holding it would
-      // address no `mails` row.
-      if (input.domain_mailbox && existing.uid_domain > 0) {
-        await writeMailboxUid(
-          input.user_id,
-          input.domain_mailbox,
-          existing.mail_id,
-          existing.uid_domain
-        );
-      }
+      // Every value describing the row comes off `existing`, not off the
+      // caller: `input`'s reservations belong to an INSERT that never
+      // happened, and its `sent` describes a different delivery of the same
+      // Message-ID than the row that survived.
+      const persistedUid = await recordMappings(
+        input.user_id,
+        existing.mail_id,
+        decideMappingWrites({
+          mailbox: input.mailbox,
+          uid_mailbox: input.uid_mailbox,
+          domain_mailbox: input.domain_mailbox,
+          uid_domain: existing.uid_domain,
+          sent: existing.sent,
+        }),
+        input.mailbox
+      );
       // Mirror the placement flip into the mapped-utility pivots — same
       // helper as the INSERT branch above. A placement that transitions
       // `saved` to TRUE (COPY into `Starred` for a same-Message-ID row) has

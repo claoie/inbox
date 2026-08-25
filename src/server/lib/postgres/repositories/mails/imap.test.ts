@@ -435,24 +435,30 @@ describe("expungeDeletedMails — `updated` column refresh (regression for #456,
     expect(saveSource).toMatch(/updated:\s*DB_NOW/);
   });
 
-  it("saveMail dual-writes to mail_mailbox_uid on the INSERT branch", () => {
+  it("saveMail records its mapping rows through the decision helper on both branches", () => {
     const saveMatch = mailsSource.match(/export const saveMail[\s\S]*?\n};/);
     if (!saveMatch) throw new Error("saveMail not found in mails/*.ts");
     const saveSource = saveMatch[0];
-    // The call is gated: mailbox present AND uid_mailbox > 0 (no
-    // per-mailbox UID reserved → no mapping row).
-    expect(saveSource).toMatch(/writeMailboxUid\s*\(/);
-    expect(saveSource).toMatch(/input\.mailbox/);
-    expect(saveSource).toMatch(/uid_mailbox/);
-    // Two mailboxes can be recorded per row — the mapped destination against
-    // `uid_mailbox`, and the domain view against `uid_domain` — on each of the
-    // two branches (INSERT success + 23505 conflict merge).
-    const writeMailboxUidCount =
-      (saveSource.match(/writeMailboxUid\s*\(/g) ?? []).length;
-    expect(writeMailboxUidCount).toBe(4);
-    const mappedCount = (saveSource.match(/input\.mailbox,/g) ?? []).length;
-    const domainCount = (saveSource.match(/input\.domain_mailbox,/g) ?? []).length;
-    expect([mappedCount, domainCount]).toEqual([2, 2]);
+    // Which rows each branch writes is pinned by `mapping-decisions.test.ts`;
+    // what this pins is that neither branch reaches `writeMailboxUid` around
+    // it, which would put the gating back inline where nothing tests it.
+    const decideCount = (saveSource.match(/decideMappingWrites\(\{/g) ?? []).length;
+    expect(decideCount).toBe(2);
+    expect(saveSource).not.toMatch(/writeMailboxUid\s*\(/);
+  });
+
+  it("saveMail's merge branch describes the SURVIVING row, never the caller's input", () => {
+    // The caller's `uid_domain` belongs to an INSERT that never happened, and
+    // its `sent` describes a different delivery of the same Message-ID. Both
+    // have to come off `existing`, or a sent row acquires a received view's
+    // membership at a UID drawn from the wrong counter.
+    const saveMatch = mailsSource.match(/export const saveMail[\s\S]*?\n};/);
+    if (!saveMatch) throw new Error("saveMail not found in mails/*.ts");
+    const mergeBranch = saveMatch[0].slice(saveMatch[0].indexOf('pgError.code === "23505"'));
+    expect(mergeBranch).toMatch(/uid_domain:\s*existing\.uid_domain/);
+    expect(mergeBranch).toMatch(/sent:\s*existing\.sent/);
+    expect(mergeBranch).not.toMatch(/uid_domain:\s*input\.uid_domain/);
+    expect(mergeBranch).not.toMatch(/sent:\s*input\.sent/);
   });
 
   it("saveMail's outer catch rethrows on non-23505 errors so SMTP replies 5xx", () => {
@@ -503,10 +509,10 @@ describe("expungeDeletedMails — `updated` column refresh (regression for #456,
     // COPYUID / MOVE dest-UID reporting (see storeMail's mail.uid.account
     // reconciliation).
     expect(saveSource).toMatch(/Promise<\{\s*_id:\s*string;\s*uid_mailbox\?/);
-    // Both writeMailboxUid call sites (INSERT success + 23505 merge)
-    // capture the returned UID into `persistedUid` and thread it into
-    // the returned object.
-    const persistedUidAssignments = (saveSource.match(/persistedUid\s*=\s*await\s+writeMailboxUid/g) ?? []).length;
+    // Both branches (INSERT success + 23505 merge) capture the UID persisted
+    // for the mapped destination and thread it into the returned object.
+    const persistedUidAssignments =
+      (saveSource.match(/const persistedUid\s*=\s*await\s+recordMappings/g) ?? []).length;
     expect(persistedUidAssignments).toBe(2);
     // Both return statements include uid_mailbox: persistedUid.
     const returnSites = (saveSource.match(/return\s*\{\s*_id:[^}]*uid_mailbox:\s*persistedUid/g) ?? []).length;

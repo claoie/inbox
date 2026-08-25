@@ -10,9 +10,12 @@ import { IS_SPAM, DRAFT } from "../../models";
  *    is a row in `mail_mailbox_uid`, which also carries the per-box UID.
  *  - **Domain views** — `INBOX`, the unified `Sent Messages`, and the utility
  *    views below. Membership is a predicate over `mails` and UIDs come from
- *    `mails.uid_domain`. `INBOX` additionally carries a mapping row per member,
- *    written by the paths that file a mail into the INBOX tree and holding that
- *    same `uid_domain`; no read consults it.
+ *    `mails.uid_domain`. `INBOX` additionally carries a mapping row for every
+ *    mail filed into its tree, holding that same `uid_domain`; no read
+ *    consults it. Those rows are the tree's *scope*, not its membership — the
+ *    predicate still applies on top, so a spam-classified delivery holds a row
+ *    while INBOX excludes it, and un-marking it restores the mail to INBOX
+ *    with no row to re-create.
  *
  * The rules live here rather than in `imap.ts` so `counters.ts` can apply the
  * same branch without importing the module that imports it.
@@ -25,9 +28,10 @@ import { IS_SPAM, DRAFT } from "../../models";
 const INBOX_ACCOUNTS_PREFIX = "INBOX/accounts/";
 
 /**
- * The name `INBOX` membership is recorded under in `mail_mailbox_uid`. Matched
- * case-insensitively on the way in, per RFC 3501 §5.1, and stored in this
- * spelling — the one `canonicalMailbox` produces on the IMAP side.
+ * The name the INBOX tree's mapping rows are recorded under in
+ * `mail_mailbox_uid`. Matched case-insensitively on the way in, per RFC 3501
+ * §5.1, and stored in this spelling — the one `canonicalMailbox` produces on
+ * the IMAP side.
  */
 export const INBOX_VIEW = "INBOX";
 
@@ -79,13 +83,13 @@ export const isInboxTree = (mailbox: string | null, sent: boolean): boolean =>
   !sent && (mailbox === null || mailbox.startsWith(INBOX_ACCOUNTS_PREFIX));
 
 /**
- * The domain view a write into `destination` records membership under, or
+ * The domain view a write into `destination` records a mapping row under, or
  * `undefined` for a destination outside the INBOX tree. `destination` is the
  * box the write names — the wire box of an IMAP `COPY` / `MOVE` / `APPEND`,
  * and the per-account view of an SMTP delivery. The read-side twin is
- * `isInboxTree`, which spells the unified view `null` because a domain view
- * has no name to select on; a mapping row does, so this one takes it as a
- * string.
+ * `isInboxTree`, which decides which boxes apply the INBOX predicate; it
+ * spells the unified view `null` because a domain view has no name to select
+ * on, and a mapping row does, so this one takes a string.
  */
 export const domainViewForDestination = (
   destination: string,
