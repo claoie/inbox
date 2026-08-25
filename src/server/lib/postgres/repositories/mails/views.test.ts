@@ -148,8 +148,8 @@ describe("the IMAP-side folder table agrees with the predicate", () => {
 
 describe("domainViewForDestination — which writes record INBOX membership", () => {
   it("records the unified view for every box in the INBOX tree", () => {
-    expect(domainViewForDestination("INBOX", false)).toBe(INBOX_VIEW);
-    expect(domainViewForDestination("INBOX/accounts/admin", false)).toBe(INBOX_VIEW);
+    expect(domainViewForDestination("INBOX")).toBe(INBOX_VIEW);
+    expect(domainViewForDestination("INBOX/accounts/admin")).toBe(INBOX_VIEW);
   });
 
   it("matches INBOX case-insensitively and stores the canonical spelling", async () => {
@@ -158,10 +158,10 @@ describe("domainViewForDestination — which writes record INBOX membership", ()
     // under the one spelling a read would join on.
     const { canonicalMailbox } = await import("../../../imap/util");
     expect(INBOX_VIEW).toBe(canonicalMailbox("inbox"));
-    expect(domainViewForDestination("inbox", false)).toBe(INBOX_VIEW);
+    expect(domainViewForDestination("inbox")).toBe(INBOX_VIEW);
     // Only INBOX itself is case-insensitive — the sub-tree is an ordinary
     // hierarchical name, which the read side also matches case-sensitively.
-    expect(domainViewForDestination("Inbox/accounts/admin", false)).toBeUndefined();
+    expect(domainViewForDestination("Inbox/accounts/admin")).toBeUndefined();
     expect(isInboxTree("Inbox/accounts/admin", false)).toBe(false);
   });
 
@@ -169,25 +169,20 @@ describe("domainViewForDestination — which writes record INBOX membership", ()
     // The defect this membership exists to close: a COPY / MOVE into any of
     // these creates a received, non-spam row, which the INBOX predicate matches
     // on its own. Recording INBOX for them would carry that over.
-    expect(domainViewForDestination("Archive", false)).toBeUndefined();
-    expect(domainViewForDestination("Trash", false)).toBeUndefined();
-    expect(domainViewForDestination("Starred", false)).toBeUndefined();
-    expect(domainViewForDestination("Junk", false)).toBeUndefined();
-    expect(domainViewForDestination("Drafts", false)).toBeUndefined();
-    expect(domainViewForDestination("Sent Messages", false)).toBeUndefined();
-    expect(domainViewForDestination("Sent Messages/accounts/admin", false)).toBeUndefined();
+    expect(domainViewForDestination("Archive")).toBeUndefined();
+    expect(domainViewForDestination("Trash")).toBeUndefined();
+    expect(domainViewForDestination("Starred")).toBeUndefined();
+    expect(domainViewForDestination("Junk")).toBeUndefined();
+    expect(domainViewForDestination("Drafts")).toBeUndefined();
+    expect(domainViewForDestination("Sent Messages")).toBeUndefined();
+    expect(domainViewForDestination("Sent Messages/accounts/admin")).toBeUndefined();
   });
 
   it("does not treat a user box whose name merely starts with INBOX as the tree", () => {
     // `CREATE INBOXER` and `CREATE "INBOX/keep"` are both legal user boxes. Only
     // the exact name and the accounts/ sub-tree are INBOX.
-    expect(domainViewForDestination("INBOXER", false)).toBeUndefined();
-    expect(domainViewForDestination("INBOX/keep", false)).toBeUndefined();
-  });
-
-  it("never records INBOX for sent mail, whichever box names it", () => {
-    expect(domainViewForDestination("INBOX", true)).toBeUndefined();
-    expect(domainViewForDestination("INBOX/accounts/admin", true)).toBeUndefined();
+    expect(domainViewForDestination("INBOXER")).toBeUndefined();
+    expect(domainViewForDestination("INBOX/keep")).toBeUndefined();
   });
 
   it("agrees with the read-side twin on every box both can name", () => {
@@ -201,12 +196,9 @@ describe("domainViewForDestination — which writes record INBOX membership", ()
       ["Sent Messages/accounts/admin", "Sent Messages/accounts/admin"],
     ];
     for (const [destination, readSide] of cases) {
-      for (const sent of [false, true]) {
-        expect(
-          domainViewForDestination(destination, sent) !== undefined,
-          `${destination} (sent=${sent})`
-        ).toBe(isInboxTree(readSide, sent));
-      }
+      expect(domainViewForDestination(destination) !== undefined, destination).toBe(
+        isInboxTree(readSide, false)
+      );
     }
   });
 });

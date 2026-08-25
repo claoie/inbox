@@ -327,10 +327,12 @@ export const saveMail = async (
         );
       }
 
-      // Every value describing the row comes off `existing`, not off the
-      // caller: `input`'s reservations belong to an INSERT that never
-      // happened, and its `sent` describes a different delivery of the same
-      // Message-ID than the row that survived.
+      // The domain view describes the SURVIVING row, so its `uid_domain` and
+      // `sent` come off `existing` — the caller's reservation belongs to an
+      // INSERT that never happened, and its `sent` describes a different
+      // delivery of the same Message-ID. The mapped destination is the
+      // caller's own: this delivery's account box is exactly what the merge
+      // exists to record.
       const persistedUid = await recordMappings(
         input.user_id,
         existing.mail_id,

@@ -86,20 +86,18 @@ export const isInboxTree = (mailbox: string | null, sent: boolean): boolean =>
  * The domain view a write into `destination` records a mapping row under, or
  * `undefined` for a destination outside the INBOX tree. `destination` is the
  * box the write names — the wire box of an IMAP `COPY` / `MOVE` / `APPEND`,
- * and the per-account view of an SMTP delivery. The read-side twin is
- * `isInboxTree`, which decides which boxes apply the INBOX predicate; it
- * spells the unified view `null` because a domain view has no name to select
- * on, and a mapping row does, so this one takes a string.
+ * and the per-account view of an SMTP delivery. Whether the row may hold that
+ * membership is `decideMappingWrites`' question, not this one's.
+ *
+ * The read-side twin is `isInboxTree`, which decides which boxes apply the
+ * INBOX predicate; it spells the unified view `null` because a domain view has
+ * no name to select on, and a mapping row does, so this one takes a string.
  */
-export const domainViewForDestination = (
-  destination: string,
-  sent: boolean
-): string | undefined => {
-  const isInboxTreeDestination =
-    destination.toUpperCase() === INBOX_VIEW ||
-    destination.startsWith(INBOX_ACCOUNTS_PREFIX);
-  return !sent && isInboxTreeDestination ? INBOX_VIEW : undefined;
-};
+export const domainViewForDestination = (destination: string): string | undefined =>
+  destination.toUpperCase() === INBOX_VIEW ||
+  destination.startsWith(INBOX_ACCOUNTS_PREFIX)
+    ? INBOX_VIEW
+    : undefined;
 
 export const membershipFilter = (
   mailbox: string | null,

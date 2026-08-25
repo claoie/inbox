@@ -613,10 +613,11 @@ export class Store {
    * (`COPY dest`, `MOVE dest`, `APPEND target`); it decides two things:
    *
    * - **Mapping.** Only a mapped destination gets a `mail_mailbox_uid` row
-   *   carrying `uid_mailbox`. Domain-scoped destinations (INBOX, unified
-   *   `Sent Messages`, the utility folders) enumerate by `uid_domain`; of
-   *   those, a destination in the INBOX tree records a second mapping row
-   *   holding that `uid_domain`.
+   *   carrying `uid_mailbox`; domain-scoped destinations (INBOX, unified
+   *   `Sent Messages`, the utility folders) enumerate by `uid_domain`.
+   *   Independently, a destination anywhere in the INBOX tree records a row
+   *   under `INBOX` holding that `uid_domain` — so `APPEND INBOX` records one
+   *   row and `COPY … INBOX/accounts/<local>` records both.
    * - **Placement.** A utility folder selects its rows by flag, so a write that
    *   names one sets that flag here rather than relying on the client to have
    *   sent it — an APPEND to `Drafts` without `\Draft` would otherwise land
@@ -628,7 +629,7 @@ export class Store {
       const mailbox =
         destination && !isDomainScoped(destination) ? destination : undefined;
       const domainMailbox = destination
-        ? domainViewForDestination(destination, !!mail.sent)
+        ? domainViewForDestination(destination)
         : undefined;
       const input: SaveMailInput = {
         user_id: this.user.id,

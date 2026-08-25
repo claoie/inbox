@@ -63,3 +63,32 @@ describe("decideMappingWrites — which mapping rows a saveMail branch records",
     ).toEqual([{ mailbox: "Sent Messages/accounts/admin", uid: 9 }]);
   });
 });
+
+describe("the write paths that feed decideMappingWrites", () => {
+  // Deleting any one of these three wirings removes every INBOX mapping row on
+  // that path and changes nothing else — no read consults them yet, so the
+  // whole feature reduces to a no-op with every behavioural test still green.
+  // Read the sources: there is no seam to drive these from without a pool.
+  const read = async (relative: string) => {
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    return fs.readFile(path.join(import.meta.dir, relative), "utf8");
+  };
+
+  it("SMTP delivery files received mail under INBOX", async () => {
+    const receive = await read("../../../mails/receive.ts");
+    expect(receive).toMatch(/domain_mailbox:\s*mail\.sent\s*\?\s*undefined\s*:\s*INBOX_VIEW/);
+  });
+
+  it("an IMAP write files its destination's domain view", async () => {
+    const store = await read("../../../imap/store.ts");
+    expect(store).toMatch(/domainViewForDestination\(destination\)/);
+    expect(store).toMatch(/domain_mailbox:\s*domainMailbox/);
+  });
+
+  it("saveMail forwards the caller's domain view on both branches", async () => {
+    const core = await read("./core.ts");
+    const forwards = (core.match(/domain_mailbox:\s*input\.domain_mailbox/g) ?? []).length;
+    expect(forwards).toBe(2);
+  });
+});
