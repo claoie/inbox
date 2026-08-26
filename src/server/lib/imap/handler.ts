@@ -316,22 +316,28 @@ export class ImapRequestHandler {
       return true;
     };
 
-    // Octets buffered that the drain has not agreed to receive. What it has
-    // agreed to is excluded — an announced literal payload, or the tail of an
-    // over-cap declaration being counted out — and what remains is command
-    // text nothing has read yet.
+    // Octets buffered that the drain has not agreed to receive. The one thing
+    // it has agreed to is an announced literal payload, which is excluded
+    // because it is not command text and is legitimately larger than any
+    // command; what remains is command text nothing has read yet.
     //
     // The unfinished LINE is the wrong quantity to measure here: a peer whose
     // junk ends in CRLF every kilobyte keeps that number at zero forever while
     // `buffer` grows by every octet it writes. What costs memory is octets held
     // unread, terminated or not.
+    //
+    // `discardBytesRemaining` is deliberately NOT excluded, even though those
+    // octets are also spoken for. Every exclusion is a credit the peer can
+    // spend against this bound, so a term is only safe here if the peer cannot
+    // choose it: `literalBytesNeeded` is set only after `refuseOversizedLiteral`
+    // has held the declaration to a ceiling, while the discard counter is the
+    // over-cap declaration itself — `A1 LOGIN {4000000000+}` would credit four
+    // gigabytes and switch the bound off for the rest of the connection.
+    // Excluding nothing costs the discard nothing either: those octets are
+    // being thrown away, so pausing while the drain catches up throttles a
+    // discard that has no reason to run any faster than the drain can consume.
     const unconsumedCommandBytes = (): number => {
-      const awaited =
-        discardBytesRemaining > 0
-          ? discardBytesRemaining
-          : awaitingLiteral
-            ? literalBytesNeeded
-            : 0;
+      const awaited = awaitingLiteral ? literalBytesNeeded : 0;
       return Math.max(0, buffer.length - awaited);
     };
 
@@ -453,7 +459,11 @@ export class ImapRequestHandler {
                 .subarray(0, literalBytesNeeded)
                 .toString("utf8");
               pendingLiterals.push(payload);
-              pendingLiteralBytes += Buffer.byteLength(payload);
+              // The declared count, not a re-measure of the decoded string:
+              // it is the exact number of octets just sliced out of the
+              // buffer, and an invalid UTF-8 sequence decodes to U+FFFD and
+              // re-encodes to three octets that were never on the wire.
+              pendingLiteralBytes += literalBytesNeeded;
               // COPY the residual rather than viewing it. `subarray` returns a
               // view that keeps the whole parent allocation alive, so after a
               // multi-MB APPEND the session would sit on the full message for as

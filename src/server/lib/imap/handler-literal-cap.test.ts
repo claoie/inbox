@@ -380,6 +380,41 @@ describe("IMAP unread-command-text ceiling", () => {
     expect(dispatched.map((d) => d.tag)).toEqual(["A1", "A2"]);
   });
 
+  it("keeps the bound after an over-cap declaration armed the discard", async () => {
+    const { socket, dispatched } = makeHarness();
+
+    // Everything the bound excludes is a credit the peer gets to spend against
+    // it, so the excluded term has to be one the peer cannot choose. The
+    // discard counter is the refused declaration itself: crediting it would let
+    // one unauthenticated line buy four gigabytes of exemption for the rest of
+    // the connection, and the octets it excuses are ones being thrown away.
+    socket.emit("data", Buffer.from("A1 LOGIN {4000000000+}\r\n"));
+    await settle();
+    expect(socket.writes).toEqual([
+      `A1 NO [TOOBIG] Literal exceeds ${SMALL_CAP} octets\r\n`
+    ]);
+
+    // One synchronous burst: `data` is synchronous and the drain is not, so
+    // nothing is consumed between these events — the same window a flood rides
+    // on a real socket, without needing a park to open it.
+    const chunk = Buffer.alloc(32 * 1024, 0x5a);
+    let written = 0;
+    for (let i = 0; i < 64 && !socket.paused; i++) {
+      socket.emit("data", chunk);
+      written += chunk.length;
+    }
+
+    expect(socket.paused).toBe(true);
+    expect(written).toBeLessThanOrEqual(UNCONSUMED_CAP + chunk.length);
+
+    // The discard is throttled, not wedged: the drain consumes what is held
+    // and the socket is read again.
+    await settle();
+    expect(socket.paused).toBe(false);
+    expect(socket.destroyed).toBe(false);
+    expect(dispatched).toEqual([]);
+  });
+
   it("leaves a long but legal command line alone", async () => {
     const { socket, dispatched } = makeHarness();
 
