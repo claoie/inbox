@@ -21,6 +21,7 @@ import { ImapRequestHandler } from "./handler";
 class FakeSocket extends EventEmitter {
   destroyed = false;
   writable = true;
+  paused = false;
   written: string[] = [];
   write(data: string) {
     this.written.push(data);
@@ -30,6 +31,12 @@ class FakeSocket extends EventEmitter {
     this.destroyed = true;
   }
   setTimeout() {}
+  pause() {
+    this.paused = true;
+  }
+  resume() {
+    this.paused = false;
+  }
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 20));

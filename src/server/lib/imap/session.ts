@@ -686,6 +686,10 @@ export class ImapSession {
     return this.isIdling;
   };
 
+  isAuthenticated = (): boolean => {
+    return this.authenticated;
+  };
+
   getSessionId = (): string => {
     return this.sessionId;
   };

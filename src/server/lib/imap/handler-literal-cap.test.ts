@@ -6,9 +6,11 @@
  *
  *  1) `a1 APPEND INBOX {999999999+}` — the drain waits for a gigabyte and
  *     holds every octet of it in the pending-literal state.
- *  2) A line that never terminates — no literal needed. `lineEnd === -1`
- *     returns, leaving everything buffered, and `buffer` grows until the
- *     process dies.
+ *  2) Command text the drain never consumes — no literal needed. `lineEnd
+ *     === -1` returns, leaving everything buffered, and `buffer` grows until
+ *     the process dies. Terminating every line does not help the server: what
+ *     costs memory is octets held unread, and the drain spends most of a
+ *     flood parked on the session's serial chain.
  *
  *  3) A chain of declarations, each individually under its own cap, whose
  *     payloads accumulate on the pending-literal state until the process
@@ -39,10 +41,20 @@ function makeMockSocket() {
     setTimeout: () => void;
     destroy: () => void;
     end: () => void;
+    paused: boolean;
+    pause: () => void;
+    resume: () => void;
   };
   socket.writes = [];
   socket.writable = true;
   socket.destroyed = false;
+  socket.paused = false;
+  socket.pause = () => {
+    socket.paused = true;
+  };
+  socket.resume = () => {
+    socket.paused = false;
+  };
   socket.write = (data: string) => {
     socket.writes.push(data);
     return true;
@@ -55,7 +67,7 @@ function makeMockSocket() {
   return socket;
 }
 
-function makeHarness(onRequest?: () => Promise<void>) {
+function makeHarness(onRequest?: () => Promise<void>, authenticated = false) {
   const handler = new ImapRequestHandler();
   const socket = makeMockSocket();
   const dispatched: { tag: string; request: ImapRequest }[] = [];
@@ -64,6 +76,14 @@ function makeHarness(onRequest?: () => Promise<void>) {
     if (onRequest) await onRequest();
   };
   handler.setSocket(socket as never);
+  // The message-sized APPEND ceiling is offered to an authenticated session
+  // only, and `setSocket` owns the session — so the state is set on it
+  // directly rather than by driving a LOGIN this harness has no store for.
+  if (authenticated) {
+    (
+      handler as unknown as { session: { authenticated: boolean } }
+    ).session.authenticated = true;
+  }
   return { socket, dispatched };
 }
 
@@ -76,7 +96,7 @@ const settle = async () => {
 // cap being widened, which is the change these tests exist to gate.
 const SMALL_CAP = 8 * 1024;
 const APPEND_CAP = 35 * 1024 * 1024;
-const LINE_CAP = 64 * 1024;
+const UNCONSUMED_CAP = 64 * 1024;
 const CHAIN_CAP = 64;
 const PENDING_CAP = APPEND_CAP + 64 * 1024;
 
@@ -177,8 +197,8 @@ describe("IMAP literal ceiling", () => {
     }
   });
 
-  it("gives APPEND a message-sized ceiling, not the small-argument one", async () => {
-    const { socket, dispatched } = makeHarness();
+  it("gives an authenticated APPEND a message-sized ceiling, not the small-argument one", async () => {
+    const { socket, dispatched } = makeHarness(undefined, true);
 
     // A real mail is far larger than any mailbox name or credential, so APPEND
     // has to clear the small cap that every other literal takes.
@@ -197,7 +217,7 @@ describe("IMAP literal ceiling", () => {
   });
 
   it("refuses an APPEND past the message ceiling", async () => {
-    const { socket, dispatched } = makeHarness();
+    const { socket, dispatched } = makeHarness(undefined, true);
 
     // The issue's own repro shape: one socket, one declaration, a gigabyte of
     // heap. Refused on the declaration, before a single payload octet is held.
@@ -206,6 +226,23 @@ describe("IMAP literal ceiling", () => {
 
     expect(socket.writes).toEqual([
       `a1 NO [TOOBIG] Literal exceeds ${APPEND_CAP} octets\r\n`
+    ]);
+    expect(dispatched).toEqual([]);
+  });
+
+  it("holds an unauthenticated APPEND to the small-argument ceiling", async () => {
+    const { socket, dispatched } = makeHarness();
+
+    // `imap/index.ts` admits IMAP_MAX_CONNECTIONS sockets and none of them has
+    // to authenticate to declare, so the message-sized ceiling before LOGIN is
+    // a per-process multiple of itself. It costs a conforming client nothing:
+    // APPEND is answered `NO Not authenticated` at this point either way.
+    const message = "x".repeat(SMALL_CAP + 4096);
+    socket.emit("data", Buffer.from(`a1 APPEND INBOX {${message.length}+}\r\n`));
+    await settle();
+
+    expect(socket.writes).toEqual([
+      `a1 NO [TOOBIG] Literal exceeds ${SMALL_CAP} octets\r\n`
     ]);
     expect(dispatched).toEqual([]);
   });
@@ -229,37 +266,63 @@ describe("IMAP literal ceiling", () => {
   });
 });
 
-describe("IMAP command-line ceiling", () => {
-  it("ends the session on a line that never terminates", async () => {
+describe("IMAP unread-command-text ceiling", () => {
+  it("stops reading from a peer whose line never terminates", async () => {
     const { socket, dispatched } = makeHarness();
 
-    // No literal is involved, so no literal cap bounds this. Before the cap,
+    // No literal is involved, so no literal cap bounds this. Before the bound,
     // `buffer` grew for as long as the peer kept writing.
     socket.emit("data", Buffer.from("A1 SELECT "));
     await settle();
-    socket.emit("data", Buffer.alloc(LINE_CAP + 1, 0x41));
+    let written = 0;
+    const chunk = Buffer.alloc(4096, 0x41);
+    for (let i = 0; i < 64 && !socket.paused; i++) {
+      socket.emit("data", chunk);
+      written += chunk.length;
+    }
     await settle();
 
-    expect(socket.writes).toEqual(["* BYE Command line too long\r\n"]);
-    expect(socket.destroyed).toBe(true);
+    expect(socket.paused).toBe(true);
+    expect(written).toBeLessThanOrEqual(UNCONSUMED_CAP + chunk.length);
+    // Backpressure, not a verdict: the peer is told nothing and the session is
+    // left for SOCKET_TIMEOUT_MS to end.
+    expect(socket.writes).toEqual([]);
+    expect(socket.destroyed).toBe(false);
     expect(dispatched).toEqual([]);
   });
 
-  it("leaves a long but legal command line alone", async () => {
-    const { socket, dispatched } = makeHarness();
+  it("stops reading a flood whose every line terminates", async () => {
+    let release = () => {};
+    const parked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { socket, dispatched } = makeHarness(() => parked);
 
-    // A UID set naming thousands of messages is a real command, not an attack.
-    const uids = Array.from({ length: 4000 }, (_, i) => i + 1).join(",");
-    expect(uids.length).toBeLessThan(LINE_CAP);
-    socket.emit("data", Buffer.from(`A1 UID FETCH ${uids} (FLAGS)\r\n`));
+    // The shape a per-LINE bound cannot see. Every line here is well under any
+    // line ceiling and ends in CRLF, so the run past the last CRLF stays at
+    // zero however long the flood lasts — while the drain, parked on the
+    // session's serial chain, consumes none of it and `buffer` grows by every
+    // octet the peer writes.
+    socket.emit("data", Buffer.from("A1 NOOP\r\n"));
     await settle();
-
-    expect(socket.destroyed).toBe(false);
     expect(dispatched.map((d) => d.tag)).toEqual(["A1"]);
-    expect(dispatched[0].request.type).toBe("UID");
+
+    const line = Buffer.from("A2 SELECT " + "x".repeat(1012) + "\r\n");
+    let written = 0;
+    for (let i = 0; i < 512 && !socket.paused; i++) {
+      socket.emit("data", line);
+      written += line.length;
+    }
+
+    expect(socket.paused).toBe(true);
+    expect(written).toBeLessThanOrEqual(UNCONSUMED_CAP + line.length);
+    expect(socket.destroyed).toBe(false);
+
+    release();
+    await settle();
   });
 
-  it("ends the session while a command is parked mid-drain", async () => {
+  it("stops reading while a command is parked mid-drain", async () => {
     let release = () => {};
     const parked = new Promise<void>((resolve) => {
       release = resolve;
@@ -268,31 +331,77 @@ describe("IMAP command-line ceiling", () => {
 
     // The drain runs one command at a time, and every `await` in that loop —
     // the authentication-failure delay on a bad LOGIN, the pipeline throttle,
-    // any DB round-trip — parks it while `data` events keep appending. That
-    // window is exactly when an unauthenticated flood is cheapest, and a cap
-    // that only runs inside the drain is not watching during it.
+    // any DB round-trip, and since the drain runs inside `session.runSerial`
+    // any task another writer put on that chain — parks it while `data` events
+    // keep appending. That window is exactly when an unauthenticated flood is
+    // cheapest, and a bound that only runs inside the drain is not watching
+    // during it.
     socket.emit("data", Buffer.from("A1 NOOP\r\n"));
     await settle();
     expect(dispatched.map((d) => d.tag)).toEqual(["A1"]);
 
     socket.emit("data", Buffer.from("A2 SELECT "));
-    socket.emit("data", Buffer.alloc(LINE_CAP + 1, 0x41));
+    socket.emit("data", Buffer.alloc(UNCONSUMED_CAP + 1, 0x41));
     await settle();
 
-    expect(socket.writes).toEqual(["* BYE Command line too long\r\n"]);
-    expect(socket.destroyed).toBe(true);
+    expect(socket.paused).toBe(true);
+    expect(socket.destroyed).toBe(false);
 
     release();
     await settle();
   });
 
-  it("does not fire the line cap while a large APPEND payload is arriving", async () => {
+  it("reads again once the drain has consumed what was held", async () => {
+    let release = () => {};
+    const parked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let park = true;
+    const { socket, dispatched } = makeHarness(async () => {
+      if (park) await parked;
+    });
+
+    socket.emit("data", Buffer.from("A1 NOOP\r\n"));
+    await settle();
+    socket.emit("data", Buffer.from("A2 SELECT "));
+    socket.emit("data", Buffer.alloc(UNCONSUMED_CAP + 1, 0x41));
+    await settle();
+    expect(socket.paused).toBe(true);
+
+    // A pause no drain can lift would be a wedge, not backpressure: the client
+    // that merely outran the drain has to be read again once it catches up.
+    park = false;
+    release();
+    socket.emit("data", Buffer.from("\r\n"));
+    await settle();
+
+    expect(socket.paused).toBe(false);
+    expect(socket.destroyed).toBe(false);
+    expect(dispatched.map((d) => d.tag)).toEqual(["A1", "A2"]);
+  });
+
+  it("leaves a long but legal command line alone", async () => {
     const { socket, dispatched } = makeHarness();
 
+    // A UID set naming thousands of messages is a real command, not an attack.
+    const uids = Array.from({ length: 4000 }, (_, i) => i + 1).join(",");
+    expect(uids.length).toBeLessThan(UNCONSUMED_CAP);
+    socket.emit("data", Buffer.from(`A1 UID FETCH ${uids} (FLAGS)\r\n`));
+    await settle();
+
+    expect(socket.paused).toBe(false);
+    expect(socket.destroyed).toBe(false);
+    expect(dispatched.map((d) => d.tag)).toEqual(["A1"]);
+    expect(dispatched[0].request.type).toBe("UID");
+  });
+
+  it("does not count an announced APPEND payload as unread command text", async () => {
+    const { socket, dispatched } = makeHarness(undefined, true);
+
     // An APPEND body is octets, not a command line, and it legitimately runs
-    // past the line cap. The literal branch has to consume it before the line
+    // past the bound. The literal branch has to consume it before the line
     // splitter ever sees it.
-    const message = "y".repeat(LINE_CAP + 4096);
+    const message = "y".repeat(UNCONSUMED_CAP + 4096);
     socket.emit("data", Buffer.from(`a1 APPEND INBOX {${message.length}+}\r\n`));
     await settle();
     socket.emit("data", Buffer.from(message));
@@ -304,6 +413,68 @@ describe("IMAP command-line ceiling", () => {
     expect(dispatched).toHaveLength(1);
     if (dispatched[0].request.type !== "APPEND") throw new Error("Expected APPEND");
     expect(dispatched[0].request.data.message).toBe(message);
+  });
+
+  it("delivers a fragmented APPEND whose declaration is queued behind a parked drain", async () => {
+    let release = () => {};
+    const parked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let park = true;
+    const { socket, dispatched } = makeHarness(async () => {
+      if (park) {
+        park = false;
+        await parked;
+      }
+    }, true);
+
+    // Until the drain reads the declaration the payload is not announced yet,
+    // so it is indistinguishable from unread command text — and it arrives in
+    // TCP-sized pieces, none of which carries a CRLF. A bound that ended the
+    // session here would kill a conforming client on nothing but segmentation:
+    // `session-utils.ts` emits unfolded base64, so every message this server
+    // hands out and a client hands back has runs this long.
+    const message = "z".repeat(200_000);
+    socket.emit("data", Buffer.from("a1 NOOP\r\n"));
+    await settle();
+
+    socket.emit("data", Buffer.from(`a2 APPEND INBOX {${message.length}+}\r\n`));
+    const fragments: Buffer[] = [];
+    for (let i = 0; i < message.length; i += 32 * 1024) {
+      fragments.push(Buffer.from(message.slice(i, i + 32 * 1024)));
+    }
+    fragments.push(Buffer.from("\r\n"));
+
+    // A paused socket delivers nothing, so the fixture has to honour the pause
+    // the way the kernel would — feeding through it is what would make this
+    // test pass against a server that never applies backpressure at all.
+    let pumped = 0;
+    const pump = (async () => {
+      for (let guard = 0; fragments.length > 0 && guard < 500; guard++) {
+        if (socket.paused || socket.destroyed) {
+          await new Promise((r) => setTimeout(r, 5));
+          continue;
+        }
+        socket.emit("data", fragments.shift() as Buffer);
+        pumped++;
+        await new Promise((r) => setTimeout(r, 1));
+      }
+    })();
+
+    await settle();
+    expect(socket.paused).toBe(true);
+    expect(pumped).toBeGreaterThan(0);
+    expect(fragments.length).toBeGreaterThan(0);
+
+    release();
+    await pump;
+    await settle();
+
+    expect(socket.destroyed).toBe(false);
+    expect(socket.writes).toEqual([]);
+    expect(dispatched.map((d) => d.tag)).toEqual(["a1", "a2"]);
+    if (dispatched[1].request.type !== "APPEND") throw new Error("Expected APPEND");
+    expect(dispatched[1].request.data.message).toBe(message);
   });
 });
 
@@ -330,7 +501,7 @@ describe("IMAP literal-chain ceiling", () => {
   });
 
   it("ends the session on chained payloads that outgrow the byte ceiling", async () => {
-    const { socket, dispatched } = makeHarness();
+    const { socket, dispatched } = makeHarness(undefined, true);
 
     // The chain cap counts links, so a chain of tiny literals returns the same
     // verdict whether or not the BYTE ceiling is armed. This drives the shape

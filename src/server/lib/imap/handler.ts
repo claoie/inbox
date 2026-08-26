@@ -67,8 +67,13 @@ const commandVerb = (input: string): string =>
 // and no limit caps the file count, and the relay declares no SIZE ceiling of
 // its own — so this number is a judgment about how much one socket may hold,
 // not a value derived from a limit that already exists. 35 MiB clears the
-// message sizes mainstream providers accept, with the memory cost of the
-// worst case being one payload per connected socket.
+// message sizes mainstream providers accept.
+//
+// It is offered only to an authenticated session. `session.append` answers
+// `NO Not authenticated` either way, so a pre-auth declaration buys nothing
+// but heap — and that is what holds the worst case to one payload per
+// AUTHENTICATED socket rather than one per connected socket, of which
+// `imap/index.ts` admits IMAP_MAX_CONNECTIONS.
 const MAX_APPEND_LITERAL_BYTES = 35 * 1024 * 1024;
 
 // Every other literal is a mailbox name, a credential, or a SEARCH string.
@@ -76,11 +81,13 @@ const MAX_APPEND_LITERAL_BYTES = 35 * 1024 * 1024;
 // text; 8 KiB covers that with nothing left over for an attacker.
 const MAX_LITERAL_BYTES = 8 * 1024;
 
-// A line with no CRLF in it is not a command yet. Past this length the peer is
-// not speaking IMAP — it is streaming to fill the heap — so the session ends.
-// Sized to hold the longest plausible real command (a UID set naming thousands
-// of messages) with room to spare.
-const MAX_COMMAND_LINE_BYTES = 64 * 1024;
+// Command text held for a drain that has not consumed it. Past this the
+// session stops reading from the socket until the drain catches up, so the
+// buffer holds only what a command needs and TCP's own window absorbs the
+// rest. Sized to hold the longest plausible real command (a UID set naming
+// thousands of messages) with room to spare, so a client whose commands the
+// drain is keeping up with never feels it.
+const MAX_UNCONSUMED_COMMAND_BYTES = 64 * 1024;
 
 // The per-literal cap alone does not bound a COMMAND: literal declarations
 // chain, so N declarations each under the cap still accumulate N payloads on
@@ -96,9 +103,11 @@ const MAX_COMMAND_LINE_BYTES = 64 * 1024;
 const MAX_LITERALS_PER_COMMAND = 64;
 const MAX_PENDING_COMMAND_BYTES = MAX_APPEND_LITERAL_BYTES + 64 * 1024;
 
-// Cap for the literal `commandText` is about to declare.
-const literalCapFor = (commandText: string): number =>
-  commandVerb(commandText) === "APPEND"
+// Cap for the literal `commandText` is about to declare. Only an authenticated
+// session is offered the message-sized ceiling; before that every literal a
+// client can legitimately send is a command argument.
+const literalCapFor = (commandText: string, authenticated: boolean): number =>
+  authenticated && commandVerb(commandText) === "APPEND"
     ? MAX_APPEND_LITERAL_BYTES
     : MAX_LITERAL_BYTES;
 
@@ -211,6 +220,10 @@ export class ImapRequestHandler {
     // the payload landed and the remainder of that line is still to come.
     let pendingCommand: string | null = null;
     let pendingLiterals: string[] = [];
+    // Octets held on `pendingLiterals`, carried rather than recomputed: the
+    // chain ceiling is checked once per link, and re-measuring every retained
+    // payload each time makes the accounting itself quadratic in the chain.
+    let pendingLiteralBytes = 0;
     let awaitingLiteral = false;
     let literalBytesNeeded = 0;
 
@@ -265,7 +278,7 @@ export class ImapRequestHandler {
       declaredBytes: number,
       isSynchronizing: boolean
     ): boolean => {
-      const cap = literalCapFor(commandText);
+      const cap = literalCapFor(commandText, session.isAuthenticated());
       if (declaredBytes <= cap) return false;
 
       logger.info("IMAP literal over cap; refusing", {
@@ -285,6 +298,7 @@ export class ImapRequestHandler {
 
       pendingCommand = null;
       pendingLiterals = [];
+      pendingLiteralBytes = 0;
       awaitingLiteral = false;
       literalBytesNeeded = 0;
 
@@ -300,6 +314,57 @@ export class ImapRequestHandler {
       // client never sends the payload. Discarding here would swallow its NEXT
       // command instead.
       return true;
+    };
+
+    // Octets buffered that the drain has not agreed to receive. What it has
+    // agreed to is excluded — an announced literal payload, or the tail of an
+    // over-cap declaration being counted out — and what remains is command
+    // text nothing has read yet.
+    //
+    // The unfinished LINE is the wrong quantity to measure here: a peer whose
+    // junk ends in CRLF every kilobyte keeps that number at zero forever while
+    // `buffer` grows by every octet it writes. What costs memory is octets held
+    // unread, terminated or not.
+    const unconsumedCommandBytes = (): number => {
+      const awaited =
+        discardBytesRemaining > 0
+          ? discardBytesRemaining
+          : awaitingLiteral
+            ? literalBytesNeeded
+            : 0;
+      return Math.max(0, buffer.length - awaited);
+    };
+
+    // Stop reading once more command text is held than any command can be, and
+    // read again once the drain has consumed it.
+    //
+    // Backpressure rather than a teardown, because at this point a flood and a
+    // client whose APPEND declaration is merely queued behind a parked drain
+    // are the same picture — unread octets — and only one of them is an
+    // attack. Pausing lets the second through: the socket resumes the moment
+    // the declaration is read and its payload becomes announced octets. The
+    // first stops growing the heap and is left as an idle socket, which
+    // SOCKET_TIMEOUT_MS already ends, and no conforming client ever sees a
+    // `BYE` it did not earn.
+    //
+    // `paused` is tracked here rather than read back off the socket so the
+    // socket is only ever touched on a transition.
+    let paused = false;
+    const applyBackpressure = (): void => {
+      if (generation !== this.generation || socket.destroyed) return;
+      const over = unconsumedCommandBytes() > MAX_UNCONSUMED_COMMAND_BYTES;
+      if (over === paused) return;
+      paused = over;
+      if (over) {
+        logger.info("IMAP unread command text over cap; pausing socket", {
+          component: "imap",
+          bufferedBytes: buffer.length,
+          remote: `${socket.remoteAddress ?? "?"}:${socket.remotePort ?? 0}`
+        });
+        socket.pause();
+      } else {
+        socket.resume();
+      }
     };
 
     // Per-session serial drain guard. Node emits `data` events without
@@ -338,6 +403,7 @@ export class ImapRequestHandler {
               buffer = Buffer.alloc(0);
               pendingCommand = null;
               pendingLiterals = [];
+              pendingLiteralBytes = 0;
               awaitingLiteral = false;
               literalBytesNeeded = 0;
               discardBytesRemaining = 0;
@@ -387,6 +453,7 @@ export class ImapRequestHandler {
                 .subarray(0, literalBytesNeeded)
                 .toString("utf8");
               pendingLiterals.push(payload);
+              pendingLiteralBytes += Buffer.byteLength(payload);
               // COPY the residual rather than viewing it. `subarray` returns a
               // view that keeps the whole parent allocation alive, so after a
               // multi-MB APPEND the session would sit on the full message for as
@@ -443,6 +510,7 @@ export class ImapRequestHandler {
                 const literals = pendingLiterals;
                 pendingCommand = null;
                 pendingLiterals = [];
+                pendingLiteralBytes = 0;
                 await executeCommand(input, literals);
               }
               continue;
@@ -490,7 +558,7 @@ export class ImapRequestHandler {
                 // declaration about to be accepted, whose octets are already in
                 // flight under LITERAL+.
                 const heldBytes =
-                  pendingLiterals.reduce((n, s) => n + Buffer.byteLength(s), 0) +
+                  pendingLiteralBytes +
                   Buffer.byteLength(pendingCommand) +
                   declaredBytes;
                 // A chain that has outgrown any real command is an accumulator
@@ -534,16 +602,17 @@ export class ImapRequestHandler {
               const input = complete ? pendingCommand : pendingCommand + line;
               pendingCommand = null;
               pendingLiterals = [];
+              pendingLiteralBytes = 0;
               await executeCommand(input, literals);
               if (!complete) continue;
-              // `line` is the pipelined NEXT command, and it is about to be read
-              // by the rest of this iteration rather than by a fresh one — so
-              // the top-of-loop generation guard is already behind us. A
-              // literal-declaring `STARTTLS` swaps the socket inside the
-              // `executeCommand` above, and without this check the attacker's
-              // pipelined remainder would be answered inside the victim's
-              // encrypted channel (RFC 2595 §2.1, CVE-2011-0411 class).
-              if (generation !== this.generation) return;
+              // The command just executed may have been STARTTLS — the parser
+              // accepts `a1 STARTTLS {N+}`, so a literal declaration reaches
+              // this path too — and the fall-through below reads `line` as a
+              // fresh command WITHOUT passing the top-of-loop check again.
+              // That line rode in the attacker's cleartext segment and would
+              // be answered inside the victim's TLS channel. Re-enter the loop
+              // so the check discards it (RFC 2595 §2.1).
+              if (generation !== this.generation) continue;
             }
 
             // Handle SASL challenge response (client sends base64 after "+ " challenge)
@@ -607,6 +676,7 @@ export class ImapRequestHandler {
               }
               pendingCommand = line.trimEnd();
               pendingLiterals = [];
+              pendingLiteralBytes = 0;
               literalBytesNeeded = parseInt(literalMatch[1], 10);
               awaitingLiteral = true;
               // Synchronizing literals {N} (without +) require a continuation
@@ -628,25 +698,10 @@ export class ImapRequestHandler {
         }
       } finally {
         draining = false;
+        // Consumption happens only in here, so this is where a paused socket
+        // earns the right to be read again.
+        applyBackpressure();
       }
-    };
-
-    // Octets buffered that cannot become a command however long the session
-    // waits. Everything the drain has agreed to receive is excluded — an
-    // announced literal payload, or the tail of an over-cap declaration being
-    // counted out — and of what remains, only the run past the last CRLF is
-    // still an unfinished line.
-    const unterminatedTailBytes = (): number => {
-      const awaited =
-        discardBytesRemaining > 0
-          ? discardBytesRemaining
-          : awaitingLiteral
-            ? literalBytesNeeded
-            : 0;
-      if (buffer.length <= awaited) return 0;
-      const tail = buffer.subarray(awaited);
-      const lastLineEnd = tail.lastIndexOf("\r\n");
-      return lastLineEnd === -1 ? tail.length : tail.length - (lastLineEnd + 2);
     };
 
     socket.on("data", (data) => {
@@ -666,24 +721,16 @@ export class ImapRequestHandler {
         return;
       }
 
-      // A line that has outgrown the longest legal command is not a command in
-      // progress, it is a peer streaming bytes to fill the heap. The check has
-      // to sit here rather than in the drain: `drainCommands` returns early
-      // while a drain is already in flight, and every `await` in that loop — a
-      // deliberate authentication-failure delay, the pipeline throttle, a DB
-      // round-trip — parks it while this handler keeps concatenating. Growth
-      // happens here, so the bound belongs here, and it needs no
-      // authentication to start.
-      if (unterminatedTailBytes() > MAX_COMMAND_LINE_BYTES) {
-        logger.info("IMAP command line over cap; closing session", {
-          component: "imap",
-          bufferedBytes: buffer.length,
-          remote: `${socket.remoteAddress ?? "?"}:${socket.remotePort ?? 0}`
-        });
-        session.write("* BYE Command line too long\r\n");
-        if (!socket.destroyed) socket.destroy();
-        return;
-      }
+      // Growth happens here, so the bound belongs here. Inside the drain it
+      // would not be watching during the window that matters: `drainCommands`
+      // returns early while a drain is already in flight, and the in-flight
+      // drain is parked far more often than its own awaits suggest — it runs
+      // inside `session.runSerial`, so an IDLE delivery callback's DB
+      // round-trip parks it just as a deliberate authentication-failure delay
+      // or the pipeline throttle does, while this handler keeps concatenating.
+      // The bound needs no authentication to start, because neither does the
+      // flood.
+      applyBackpressure();
       // Fire-and-forget: `drainCommands` self-serializes via `draining`.
       // Errors inside are already logged; catch here just to prevent an
       // unhandled-rejection.
