@@ -219,14 +219,48 @@ describe("IMAP literal ceiling", () => {
   it("refuses an APPEND past the message ceiling", async () => {
     const { socket, dispatched } = makeHarness(undefined, true);
 
-    // The issue's own repro shape: one socket, one declaration, a gigabyte of
-    // heap. Refused on the declaration, before a single payload octet is held.
-    socket.emit("data", Buffer.from("a1 APPEND INBOX {999999999+}\r\n"));
+    // The issue's own repro shape: one socket, one declaration, more heap than
+    // any message may hold. Refused on the declaration, before a single payload
+    // octet is held. Declared under `PENDING_CAP` so this pins the refusal and
+    // not the teardown that takes over above it.
+    socket.emit("data", Buffer.from(`a1 APPEND INBOX {${APPEND_CAP + 1}+}\r\n`));
     await settle();
 
     expect(socket.writes).toEqual([
       `a1 NO [TOOBIG] Literal exceeds ${APPEND_CAP} octets\r\n`
     ]);
+    expect(dispatched).toEqual([]);
+  });
+
+  it("ends the session on a LITERAL+ declaration past the command ceiling", async () => {
+    const { socket, dispatched } = makeHarness(undefined, true);
+
+    // The discard exists to keep a session usable after one oversized request,
+    // and above the ceiling any real command fits under it provably cannot: the
+    // peer has to ship every declared octet before one further command is
+    // served, each segment resetting the socket timeout on the way. Ends the
+    // session on the same terms as the chain cap instead.
+    socket.emit("data", Buffer.from("a1 APPEND INBOX {4000000000+}\r\n"));
+    await settle();
+
+    expect(socket.writes).toEqual(["* BYE Command too long\r\n"]);
+    expect(socket.destroyed).toBe(true);
+    expect(dispatched).toEqual([]);
+  });
+
+  it("still refuses rather than closes when the payload was never invited", async () => {
+    const { socket, dispatched } = makeHarness(undefined, true);
+
+    // Same magnitude, synchronizing: the continuation is withheld, so a
+    // conforming client sends nothing and there is no discard to arm. Nothing
+    // is in flight, so nothing warrants tearing the session down.
+    socket.emit("data", Buffer.from("a1 APPEND INBOX {4000000000}\r\n"));
+    await settle();
+
+    expect(socket.writes).toEqual([
+      `a1 NO [TOOBIG] Literal exceeds ${APPEND_CAP} octets\r\n`
+    ]);
+    expect(socket.destroyed).toBe(false);
     expect(dispatched).toEqual([]);
   });
 
@@ -385,10 +419,11 @@ describe("IMAP unread-command-text ceiling", () => {
 
     // Everything the bound excludes is a credit the peer gets to spend against
     // it, so the excluded term has to be one the peer cannot choose. The
-    // discard counter is the refused declaration itself: crediting it would let
-    // one unauthenticated line buy four gigabytes of exemption for the rest of
-    // the connection, and the octets it excuses are ones being thrown away.
-    socket.emit("data", Buffer.from("A1 LOGIN {4000000000+}\r\n"));
+    // discard counter is the refused declaration itself: at the largest value
+    // that still arms a discard, crediting it would buy an unauthenticated line
+    // tens of megabytes of exemption for the rest of the connection, and the
+    // octets it excuses are ones being thrown away.
+    socket.emit("data", Buffer.from(`A1 LOGIN {${PENDING_CAP}+}\r\n`));
     await settle();
     expect(socket.writes).toEqual([
       `A1 NO [TOOBIG] Literal exceeds ${SMALL_CAP} octets\r\n`
@@ -586,5 +621,40 @@ describe("IMAP literal-chain ceiling", () => {
       type: "LOGIN",
       data: { username: "admin", password: "password" }
     });
+  });
+});
+
+describe("IMAP pipelined literal declaration", () => {
+  it("answers a pipelined command that opens with its own literal declaration", async () => {
+    const { socket, dispatched } = makeHarness();
+
+    // A payload that counted its own CRLF leaves no tail, so the next line is
+    // the NEXT command — including when that command declares a literal of its
+    // own. Absorbed as an argument tail it would get no tagged completion at
+    // all, which RFC 3501 §7 does not allow, and the client would block on the
+    // tag until the socket timed out.
+    socket.emit(
+      "data",
+      Buffer.from(
+        "a1 APPEND INBOX {13+}\r\nHello World\r\na2 SEARCH SUBJECT {3+}\r\nfoo\r\n"
+      )
+    );
+    await settle();
+
+    expect(dispatched.map((d) => d.tag)).toEqual(["a1", "a2"]);
+  });
+
+  it("still chains an argument tail that declares the next literal", async () => {
+    const { socket, dispatched } = makeHarness();
+
+    // The other side of the same predicate: LOGIN chains one declaration per
+    // credential, and the tail carrying the second one opens with the SP that
+    // separates two astrings. Treating it as a pipelined command instead would
+    // dispatch a half-parsed LOGIN and read the password as a command.
+    socket.emit("data", Buffer.from("A1 LOGIN {5+}\r\nadmin {7+}\r\nhunter2\r\n"));
+    await settle();
+
+    expect(dispatched.map((d) => d.tag)).toEqual(["A1"]);
+    expect(JSON.stringify(socket.writes)).not.toContain("hunter2");
   });
 });

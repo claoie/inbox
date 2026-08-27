@@ -103,6 +103,10 @@ const MAX_UNCONSUMED_COMMAND_BYTES = 64 * 1024;
 const MAX_LITERALS_PER_COMMAND = 64;
 const MAX_PENDING_COMMAND_BYTES = MAX_APPEND_LITERAL_BYTES + 64 * 1024;
 
+// Verdict on a literal declaration. `closed` is distinct from `refused`
+// because the drain must stop reading, not just skip the declaration.
+type LiteralOutcome = "accepted" | "refused" | "closed";
+
 // Cap for the literal `commandText` is about to declare. Only an authenticated
 // session is offered the message-sized ceiling; before that every literal a
 // client can legitimately send is a command argument.
@@ -270,16 +274,38 @@ export class ImapRequestHandler {
       }
     };
 
-    // Enforce the literal ceiling on a declaration. Returns true when the
-    // declaration was refused, in which case the caller must NOT enter
-    // accumulation — the whole point is that the octets never get held.
+    // Enforce the literal ceiling on a declaration. Anything but `accepted`
+    // means the caller must NOT enter accumulation — the whole point is that
+    // the octets never get held — and `closed` means the session is gone, so
+    // the drain has to stop rather than read on.
     const refuseOversizedLiteral = (
       commandText: string,
       declaredBytes: number,
       isSynchronizing: boolean
-    ): boolean => {
+    ): LiteralOutcome => {
       const cap = literalCapFor(commandText, session.isAuthenticated());
-      if (declaredBytes <= cap) return false;
+      if (declaredBytes <= cap) return "accepted";
+
+      // A LITERAL+ payload is already in flight, so the only recovery is to
+      // count its octets out of the stream — and past the ceiling any real
+      // command has to fit under, that recovery provably buys nothing. At
+      // `{4000000000+}` the peer must ship four gigabytes, every octet a memcpy
+      // in the `data` handler, before one further command is served, and each
+      // segment resets SOCKET_TIMEOUT_MS so the socket never idles out either.
+      // No client recovers from that, so it ends the session on the same terms
+      // as the chain cap rather than paying for a discard nobody uses.
+      if (!isSynchronizing && declaredBytes > MAX_PENDING_COMMAND_BYTES) {
+        logger.info("IMAP literal past the command ceiling; closing session", {
+          component: "imap",
+          cmd: commandVerb(commandText),
+          declaredBytes,
+          cap: MAX_PENDING_COMMAND_BYTES,
+          remote: `${socket.remoteAddress ?? "?"}:${socket.remotePort ?? 0}`
+        });
+        session.write("* BYE Command too long\r\n");
+        if (!socket.destroyed) socket.destroy();
+        return "closed";
+      }
 
       logger.info("IMAP literal over cap; refusing", {
         component: "imap",
@@ -313,7 +339,7 @@ export class ImapRequestHandler {
       // Synchronizing `{N}`: the continuation was withheld, so a conforming
       // client never sends the payload. Discarding here would swallow its NEXT
       // command instead.
-      return true;
+      return "refused";
     };
 
     // Octets buffered that the drain has not agreed to receive. The one thing
@@ -328,11 +354,13 @@ export class ImapRequestHandler {
     //
     // `discardBytesRemaining` is deliberately NOT excluded, even though those
     // octets are also spoken for. Every exclusion is a credit the peer can
-    // spend against this bound, so a term is only safe here if the peer cannot
-    // choose it: `literalBytesNeeded` is set only after `refuseOversizedLiteral`
-    // has held the declaration to a ceiling, while the discard counter is the
-    // over-cap declaration itself — `A1 LOGIN {4000000000+}` would credit four
-    // gigabytes and switch the bound off for the rest of the connection.
+    // spend against this bound, and the discard counter is the peer's own
+    // over-cap declaration: it still reaches `MAX_PENDING_COMMAND_BYTES` before
+    // the teardown takes over, so excluding it would hand an unauthenticated
+    // `A1 LOGIN {N+}` tens of megabytes of credit against a 64 KiB bound.
+    // `literalBytesNeeded` is excluded because it is set only after
+    // `refuseOversizedLiteral` has held that declaration to the cap for its
+    // command.
     // Excluding nothing costs the discard nothing either: those octets are
     // being thrown away, so pausing while the drain catches up throttles a
     // discard that has no reason to run any faster than the drain can consume.
@@ -591,11 +619,13 @@ export class ImapRequestHandler {
                 }
                 // Cap-check before mutating any state: the verb and the tag both
                 // come off the command assembled so far, not off this tail line.
-                if (
-                  refuseOversizedLiteral(pendingCommand, declaredBytes, !chained[2])
-                ) {
-                  continue;
-                }
+                const outcome = refuseOversizedLiteral(
+                  pendingCommand,
+                  declaredBytes,
+                  !chained[2]
+                );
+                if (outcome === "closed") return;
+                if (outcome === "refused") continue;
                 pendingCommand += line.trimEnd();
                 literalBytesNeeded = declaredBytes;
                 awaitingLiteral = true;
@@ -675,15 +705,13 @@ export class ImapRequestHandler {
             // the continuation. Accumulate for any command, not just APPEND.
             const literalMatch = LITERAL_DECLARATION.exec(line);
             if (literalMatch) {
-              if (
-                refuseOversizedLiteral(
-                  line,
-                  parseInt(literalMatch[1], 10),
-                  !literalMatch[2]
-                )
-              ) {
-                continue;
-              }
+              const outcome = refuseOversizedLiteral(
+                line,
+                parseInt(literalMatch[1], 10),
+                !literalMatch[2]
+              );
+              if (outcome === "closed") return;
+              if (outcome === "refused") continue;
               pendingCommand = line.trimEnd();
               pendingLiterals = [];
               pendingLiteralBytes = 0;
