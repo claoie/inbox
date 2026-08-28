@@ -657,4 +657,21 @@ describe("IMAP pipelined literal declaration", () => {
     expect(dispatched.map((d) => d.tag)).toEqual(["A1"]);
     expect(JSON.stringify(socket.writes)).not.toContain("hunter2");
   });
+
+  it("keeps an unseparated literal tail chaining while the command is incomplete", async () => {
+    const { socket, dispatched } = makeHarness();
+
+    // The separator is only half the discriminator. `A1 LOGIN {5+}` + ["admin"]
+    // does not parse yet, so this tail is still an argument even though it sits
+    // flush against the buffer start — and reading it as a fresh command would
+    // put the second payload back on the wire as `hunter22 BAD Invalid command`.
+    socket.emit(
+      "data",
+      Buffer.from("A1 LOGIN {5+}\r\nadminA2 LOGIN {8+}\r\nhunter22\r\n")
+    );
+    await settle();
+
+    expect(dispatched.map((d) => d.tag)).toEqual(["A1"]);
+    expect(socket.writes).toEqual([]);
+  });
 });
