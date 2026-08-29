@@ -6,7 +6,7 @@ import { Socket } from "net";
 import { ImapSession } from "./session";
 import { ImapRequest } from "./types";
 import { parseCommand } from "./parsers";
-import { imapTrace, redactCredentials } from "./trace";
+import { clip, imapTrace, redactCredentials } from "./trace";
 import { getBodyBudgetWaitMs, runInBodyBudgetContext } from "./body-budget";
 import { SOCKET_TIMEOUT_MS } from "./idle-manager";
 import { logger } from "server";
@@ -48,8 +48,15 @@ const chainsUnboundedArguments = (request: ImapRequest): boolean =>
 // command, including one that failed to parse, so an unparseable line still
 // needs its first token. Reads the first token of the FIRST line — a
 // literal-bearing command spans several.
+//
+// Held to `1*<ASTRING-CHAR except "+">` (RFC 3501 §9) and to 32 of them —
+// longer than any real client's tag — because not every line reaching here is
+// a command: a peer that ships the payload of a refused synchronizing literal
+// anyway has those octets read as command text, and an unbounded first token
+// writes the whole payload back to it inside a BAD completion.
+const COMMAND_TAG = /^\s*([^\s(){%*"\\+\x00-\x1f\x7f]{1,32})(?=\s|$)/;
 const commandTag = (input: string): string =>
-  /^\s*(\S+)/.exec(input)?.[1] || "BAD";
+  COMMAND_TAG.exec(input)?.[1] || "BAD";
 
 // Verb of a command line, uppercased. Second token of the FIRST line, so it
 // still reads correctly once `pendingCommand` spans several lines.
@@ -262,7 +269,7 @@ export class ImapRequestHandler {
         } else {
           logger.debug("Parse failed", {
             component: "imap.parser",
-            input: redactCredentials(input),
+            input: clip(redactCredentials(input)),
             error: parseResult.error
           });
           const errorMsg = parseResult.error || "Invalid command syntax";

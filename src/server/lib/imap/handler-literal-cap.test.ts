@@ -99,6 +99,8 @@ const APPEND_CAP = 35 * 1024 * 1024;
 const UNCONSUMED_CAP = 64 * 1024;
 const CHAIN_CAP = 64;
 const PENDING_CAP = APPEND_CAP + 64 * 1024;
+// Mirrors LINE_CAP in trace.ts, re-stated for the same reason.
+const TRACE_LINE_CAP = 512;
 
 describe("IMAP literal ceiling", () => {
   it("refuses an over-cap synchronizing literal without prompting for it", async () => {
@@ -126,6 +128,49 @@ describe("IMAP literal ceiling", () => {
 
     expect(dispatched.map((d) => d.tag)).toEqual(["A2"]);
     expect(dispatched[0].request.type).toBe("NOOP");
+  });
+
+  it("does not echo back a synchronizing payload the peer sent anyway", async () => {
+    const debugSpy = spyOn(logger, "debug");
+    try {
+      const { socket } = makeHarness();
+      debugSpy.mockClear();
+
+      // The client that ignores the withheld continuation. No framing state is
+      // left to consume those octets, so they are read as a command line — and
+      // the BAD completion for an unparseable line carries that line's own
+      // first token. Unbounded, the token IS the payload: the whole thing goes
+      // back on the wire and into the journal, one line past the LOGIN anchor
+      // `redactCredentials` needs.
+      const declared = SMALL_CAP + 810;
+      socket.emit("data", Buffer.from(`A1 LOGIN admin {${declared}}\r\n`));
+      await settle();
+      socket.emit(
+        "data",
+        Buffer.concat([
+          Buffer.from("S3cret"),
+          Buffer.alloc(declared - 6, 0x78),
+          Buffer.from("\r\n")
+        ])
+      );
+      await settle();
+
+      expect(socket.writes[0]).toBe(
+        `A1 NO [TOOBIG] Literal exceeds ${SMALL_CAP} octets\r\n`
+      );
+      expect(JSON.stringify(socket.writes)).not.toContain("S3cret");
+      for (const write of socket.writes) expect(write.length).toBeLessThan(256);
+
+      const loggedInputs = debugSpy.mock.calls
+        .filter(([message]) => message === "Parse failed")
+        .map(([, fields]) => (fields as { input: string }).input);
+      expect(loggedInputs.length).toBeGreaterThan(0);
+      for (const input of loggedInputs) {
+        expect(input.length).toBeLessThanOrEqual(TRACE_LINE_CAP + 16);
+      }
+    } finally {
+      debugSpy.mockRestore();
+    }
   });
 
   it("discards an over-cap LITERAL+ payload instead of accumulating it", async () => {

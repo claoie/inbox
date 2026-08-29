@@ -44,7 +44,7 @@ const OUTBOUND_FRAMING = new RegExp(
   ].join("|")
 );
 
-const clip = (s: string): string =>
+export const clip = (s: string): string =>
   s.length <= LINE_CAP ? s : `${s.slice(0, LINE_CAP)}…[+${s.length - LINE_CAP}]`;
 
 export const imapTrace = (
