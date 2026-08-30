@@ -101,6 +101,7 @@ const CHAIN_CAP = 64;
 const PENDING_CAP = APPEND_CAP + 64 * 1024;
 // Mirrors LINE_CAP in trace.ts, re-stated for the same reason.
 const TRACE_LINE_CAP = 512;
+const TAG_CAP = 128;
 
 describe("IMAP literal ceiling", () => {
   it("refuses an over-cap synchronizing literal without prompting for it", async () => {
@@ -161,16 +162,74 @@ describe("IMAP literal ceiling", () => {
       expect(JSON.stringify(socket.writes)).not.toContain("S3cret");
       for (const write of socket.writes) expect(write.length).toBeLessThan(256);
 
-      const loggedInputs = debugSpy.mock.calls
-        .filter(([message]) => message === "Parse failed")
-        .map(([, fields]) => (fields as { input: string }).input);
-      expect(loggedInputs.length).toBeGreaterThan(0);
-      for (const input of loggedInputs) {
-        expect(input.length).toBeLessThanOrEqual(TRACE_LINE_CAP + 16);
+      // Every debug field carrying raw wire text, not just the parse-failure
+      // one: the payload line passes `IMAP command received` before the parser
+      // ever sees it, and that entry is the same unredactable octets one line
+      // past the LOGIN anchor. Filtering to a single message name is what let
+      // the sibling ship unclipped.
+      const journaled = debugSpy.mock.calls.flatMap(([, fields]) => {
+        const { input, command } = (fields ?? {}) as {
+          input?: string;
+          command?: string;
+        };
+        return [input, command].filter((v): v is string => typeof v === "string");
+      });
+      expect(journaled.some((entry) => entry.includes("S3cret"))).toBe(true);
+      for (const entry of journaled) {
+        expect(entry.length).toBeLessThanOrEqual(TRACE_LINE_CAP + 16);
       }
     } finally {
       debugSpy.mockRestore();
     }
+  });
+
+  it("answers a tag at the ceiling with that tag, not an untagged BAD", async () => {
+    const { socket } = makeHarness();
+
+    // The ceiling is a match bound, not a clip, so a tag over it is answered
+    // untagged — and RFC 3501 §7 leaves that client blocked on a completion it
+    // never receives. UUID-shaped tags are 36 octets and are what a bound sized
+    // to the shortest plausible tag drops.
+    const uuidTag = "f47ac10b-58cc-4372-a567-0e02b2c3d479";
+    const ceilingTag = "T".repeat(TAG_CAP);
+
+    socket.emit("data", Buffer.from(`${uuidTag} FROBNICATE\r\n`));
+    await settle();
+    socket.emit("data", Buffer.from(`${ceilingTag} FROBNICATE\r\n`));
+    await settle();
+
+    expect(socket.writes).toHaveLength(2);
+    expect(socket.writes[0].startsWith(`${uuidTag} BAD `)).toBe(true);
+    expect(socket.writes[1].startsWith(`${ceilingTag} BAD `)).toBe(true);
+    expect(socket.destroyed).toBe(false);
+  });
+
+  it("does not echo a refused payload's first token past the tag ceiling", async () => {
+    const { socket } = makeHarness();
+
+    // The peer that ignores a withheld continuation, with an SP early in its
+    // payload — the one shape where the token bound is what stands between the
+    // payload and the wire. Without an SP no token ever matches at any length,
+    // so a fixture built on that shape passes under any ceiling and pins none.
+    const declared = SMALL_CAP + 810;
+    socket.emit("data", Buffer.from(`A1 LOGIN admin {${declared}}\r\n`));
+    await settle();
+
+    const overCapToken = `S3cret${"x".repeat(TAG_CAP - 5)}`;
+    expect(overCapToken.length).toBe(TAG_CAP + 1);
+    const tail = ` notthetag ${"y".repeat(declared - overCapToken.length - 11)}`;
+    socket.emit("data", Buffer.from(`${overCapToken}${tail}\r\n`));
+    await settle();
+
+    expect(socket.writes[0]).toBe(
+      `A1 NO [TOOBIG] Literal exceeds ${SMALL_CAP} octets\r\n`
+    );
+    // Anchored on what the wire actually carries, not only on what it must
+    // not: the fallback tag, and the payload's SECOND token, which is what
+    // reaches the peer once its first one is refused as a tag.
+    expect(socket.writes[1]).toBe("BAD BAD Unknown command: NOTTHETAG\r\n");
+    expect(JSON.stringify(socket.writes)).not.toContain("S3cret");
+    for (const write of socket.writes) expect(write.length).toBeLessThan(256);
   });
 
   it("discards an over-cap LITERAL+ payload instead of accumulating it", async () => {

@@ -49,12 +49,22 @@ const chainsUnboundedArguments = (request: ImapRequest): boolean =>
 // needs its first token. Reads the first token of the FIRST line — a
 // literal-bearing command spans several.
 //
-// Held to `1*<ASTRING-CHAR except "+">` (RFC 3501 §9) and to 32 of them —
-// longer than any real client's tag — because not every line reaching here is
-// a command: a peer that ships the payload of a refused synchronizing literal
-// anyway has those octets read as command text, and an unbounded first token
-// writes the whole payload back to it inside a BAD completion.
-const COMMAND_TAG = /^\s*([^\s(){%*"\\+\x00-\x1f\x7f]{1,32})(?=\s|$)/;
+// Held to `1*<ASTRING-CHAR except "+">` (RFC 3501 §9) and to a length, because
+// not every line reaching here is a command: a peer that ships the payload of
+// a refused synchronizing literal anyway has those octets read as command
+// text, and an unbounded first token writes the whole payload back to it
+// inside a BAD completion. A token longer than the ceiling does not match at
+// all, so the payload is answered untagged rather than clipped and echoed.
+//
+// The ceiling only has to sit far below a payload, not close above a tag: any
+// conforming tag it refuses is a session wedged on a completion that never
+// arrives, until SOCKET_TIMEOUT_MS. RFC 3501 §9 puts no length on a tag and
+// UUID-shaped ones run 36 octets, so 128 clears every shape in use while
+// staying 64x under MAX_LITERAL_BYTES.
+const MAX_COMMAND_TAG_BYTES = 128;
+const COMMAND_TAG = new RegExp(
+  `^\\s*([^\\s(){%*"\\\\+\\x00-\\x1f\\x7f]{1,${MAX_COMMAND_TAG_BYTES}})(?=\\s|$)`
+);
 const commandTag = (input: string): string =>
   COMMAND_TAG.exec(input)?.[1] || "BAD";
 
@@ -692,7 +702,7 @@ export class ImapRequestHandler {
 
             logger.debug("IMAP command received", {
               component: "imap",
-              command: redactCredentials(line.trim()),
+              command: clip(redactCredentials(line.trim())),
               mailbox: session.selectedMailbox
             });
             imapTrace("in", session.getSessionId(), line.trim());
