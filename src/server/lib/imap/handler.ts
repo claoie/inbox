@@ -61,9 +61,14 @@ const chainsUnboundedArguments = (request: ImapRequest): boolean =>
 // arrives, until SOCKET_TIMEOUT_MS. RFC 3501 §9 puts no length on a tag and
 // UUID-shaped ones run 36 octets, so 128 clears every shape in use while
 // staying 64x under MAX_LITERAL_BYTES.
+//
+// The class stops at \x7f because a regex quantifier counts UTF-16 code
+// units: admitting \x80 and up would let 128 of them reach 512 octets on the
+// wire, four times the bound this constant's name states. ASTRING-CHAR is
+// CHAR = %x01-7F, so nothing conforming is lost by making the two equal.
 const MAX_COMMAND_TAG_BYTES = 128;
 const COMMAND_TAG = new RegExp(
-  `^\\s*([^\\s(){%*"\\\\+\\x00-\\x1f\\x7f]{1,${MAX_COMMAND_TAG_BYTES}})(?=\\s|$)`
+  `^\\s*([^\\s(){%*"\\\\+\\x00-\\x1f\\x7f-\\uffff]{1,${MAX_COMMAND_TAG_BYTES}})(?=\\s|$)`
 );
 const commandTag = (input: string): string =>
   COMMAND_TAG.exec(input)?.[1] || "BAD";
@@ -283,7 +288,7 @@ export class ImapRequestHandler {
             error: parseResult.error
           });
           const errorMsg = parseResult.error || "Invalid command syntax";
-          session.write(`${commandTag(input)} BAD ${errorMsg}\r\n`);
+          session.write(`${commandTag(input)} BAD ${clip(errorMsg)}\r\n`);
         }
       } catch (error) {
         logger.error("Error processing command", { component: "imap" }, error);

@@ -232,6 +232,63 @@ describe("IMAP literal ceiling", () => {
     for (const write of socket.writes) expect(write.length).toBeLessThan(256);
   });
 
+  it("does not echo a refused payload's SECOND token inside the parse error", async () => {
+    const { socket } = makeHarness();
+
+    // The token bound holds token 1. Token 2 is the same payload octets
+    // travelling through a different string: `parseAtom` scans to the next
+    // atom-special with no length of its own, and the BAD completion
+    // interpolates that atom verbatim. An SP early in the payload is what
+    // splits the two — with token 1 under the ceiling it matches as the tag,
+    // and everything after it rides back out unbounded.
+    const declared = SMALL_CAP + 810;
+    socket.emit("data", Buffer.from(`A1 LOGIN admin {${declared}}\r\n`));
+    await settle();
+
+    const shortToken = "S3cret";
+    socket.emit(
+      "data",
+      Buffer.concat([
+        Buffer.from(`${shortToken} `),
+        Buffer.alloc(declared - shortToken.length - 1, 0x78),
+        Buffer.from("\r\n")
+      ])
+    );
+    await settle();
+
+    expect(socket.writes[0]).toBe(
+      `A1 NO [TOOBIG] Literal exceeds ${SMALL_CAP} octets\r\n`
+    );
+    expect(socket.writes[1].startsWith(`${shortToken} BAD Unknown command: `)).toBe(
+      true
+    );
+    expect(socket.writes[1]).toContain("…[+");
+    for (const write of socket.writes) {
+      expect(write.length).toBeLessThan(TRACE_LINE_CAP + TAG_CAP + 64);
+    }
+  });
+
+  it("does not echo a non-ASCII first token whose octets exceed the tag ceiling", async () => {
+    const { socket } = makeHarness();
+
+    // The ceiling is a quantifier over UTF-16 code units. Every code unit at
+    // or above \x80 is more than one octet on the wire, so a token at the
+    // ceiling by count is over it by the measure the constant is named for.
+    const wideTag = "é".repeat(TAG_CAP);
+    expect(wideTag.length).toBe(TAG_CAP);
+    expect(Buffer.byteLength(wideTag)).toBe(TAG_CAP * 2);
+
+    socket.emit("data", Buffer.from(`${wideTag} FROBNICATE\r\n`));
+    await settle();
+
+    expect(socket.writes).toHaveLength(1);
+    expect(socket.writes[0].startsWith("BAD BAD ")).toBe(true);
+    expect(socket.writes[0]).not.toContain("é");
+    for (const write of socket.writes) {
+      expect(Buffer.byteLength(write)).toBeLessThanOrEqual(TAG_CAP);
+    }
+  });
+
   it("discards an over-cap LITERAL+ payload instead of accumulating it", async () => {
     const { socket, dispatched } = makeHarness();
 
