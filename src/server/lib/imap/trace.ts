@@ -44,8 +44,25 @@ const OUTBOUND_FRAMING = new RegExp(
   ].join("|")
 );
 
-export const clip = (s: string): string =>
-  s.length <= LINE_CAP ? s : `${s.slice(0, LINE_CAP)}…[+${s.length - LINE_CAP}]`;
+// Measured in octets, not UTF-16 code units. The wire is decoded with
+// `toString("utf8")`, so every octet that is not valid UTF-8 arrives as one
+// U+FFFD and leaves as three octets again — a code-unit count lets a line this
+// cap names at LINE_CAP reach three times that, on the wire as well as in the
+// journal. Sliced on a code point so a surrogate pair is not split.
+export const clip = (s: string): string => {
+  const octets = Buffer.byteLength(s);
+  if (octets <= LINE_CAP) return s;
+
+  let kept = "";
+  let keptOctets = 0;
+  for (const codePoint of s) {
+    const size = Buffer.byteLength(codePoint);
+    if (keptOctets + size > LINE_CAP) break;
+    kept += codePoint;
+    keptOctets += size;
+  }
+  return `${kept}…[+${octets - keptOctets}]`;
+};
 
 export const imapTrace = (
   direction: "in" | "out",

@@ -44,10 +44,14 @@ const chainsUnboundedArguments = (request: ImapRequest): boolean =>
   request.type === "SEARCH" ||
   (request.type === "UID" && chainsUnboundedArguments(request.data.request));
 
-// Tag of a command line. RFC 3501 §7 requires a tagged completion for every
-// command, including one that failed to parse, so an unparseable line still
-// needs its first token. Reads the first token of the FIRST line — a
-// literal-bearing command spans several.
+// Tag of a command line, and the only source of the tag on the wire. A line
+// that parses goes through it too, rather than carrying the tag `parseCommand`
+// returned: that one is `parseAtom` output, which scans to the next
+// atom-special with no length of its own — and the peer picks whether its own
+// line parses, so a bound on one branch is a bound it opts out of. RFC 3501 §7
+// requires a tagged completion for every command, including one that failed to
+// parse, so an unparseable line still needs its first token. Reads the first
+// token of the FIRST line — a literal-bearing command spans several.
 //
 // Held to `1*<ASTRING-CHAR except "+">` (RFC 3501 §9) and to a length, because
 // not every line reaching here is a command: a peer that ships the payload of
@@ -279,8 +283,8 @@ export class ImapRequestHandler {
       try {
         const parseResult = parseCommand(input, literals);
         if (parseResult.success && parseResult.value) {
-          const { tag, request } = parseResult.value;
-          await this.handleRequest(tag, request);
+          const { request } = parseResult.value;
+          await this.handleRequest(commandTag(input), request);
         } else {
           logger.debug("Parse failed", {
             component: "imap.parser",

@@ -67,12 +67,21 @@ function makeMockSocket() {
   return socket;
 }
 
-function makeHarness(onRequest?: () => Promise<void>, authenticated = false) {
+function makeHarness(
+  onRequest?: () => Promise<void>,
+  authenticated = false,
+  // The tag reaches the peer inside a completion, and only the real dispatch
+  // writes one. A fixture measuring what a command line puts back on the wire
+  // has to let it run; recording alone sees the tag but never its octets.
+  realDispatch = false
+) {
   const handler = new ImapRequestHandler();
   const socket = makeMockSocket();
   const dispatched: { tag: string; request: ImapRequest }[] = [];
+  const dispatch = handler.handleRequest.bind(handler);
   handler.handleRequest = async (tag, request) => {
     dispatched.push({ tag, request });
+    if (realDispatch) await dispatch(tag, request);
     if (onRequest) await onRequest();
   };
   handler.setSocket(socket as never);
@@ -286,6 +295,108 @@ describe("IMAP literal ceiling", () => {
     expect(socket.writes[0]).not.toContain("é");
     for (const write of socket.writes) {
       expect(Buffer.byteLength(write)).toBeLessThanOrEqual(TAG_CAP);
+    }
+  });
+
+  it("does not echo a refused payload whose tail PARSES back inside the completion", async () => {
+    const { socket, dispatched } = makeHarness(undefined, false, true);
+
+    // The fixture above with the payload's last octets a verb instead of junk.
+    // The peer picks whether its own line parses, so a bound that sits only on
+    // the failure branch is a bound the peer opts out of: on the success
+    // branch the tag is `parseAtom` output, which has no length of its own and
+    // rides back inside the tagged completion the dispatch writes.
+    const declared = SMALL_CAP + 810;
+    socket.emit("data", Buffer.from(`A1 LOGIN admin {${declared}}\r\n`));
+    await settle();
+
+    const verb = " NOOP";
+    socket.emit(
+      "data",
+      Buffer.concat([
+        Buffer.alloc(declared - verb.length, 0x41),
+        Buffer.from(verb),
+        Buffer.from("\r\n")
+      ])
+    );
+    await settle();
+
+    expect(socket.writes[0]).toBe(
+      `A1 NO [TOOBIG] Literal exceeds ${SMALL_CAP} octets\r\n`
+    );
+    // The line does parse, and is answered as the command it is — the bound is
+    // on the tag it is answered with, not on whether it runs.
+    expect(dispatched[0].request.type).toBe("NOOP");
+    expect(dispatched[0].tag).toBe("BAD");
+    expect(socket.writes[1]).toBe("BAD OK NOOP completed\r\n");
+    for (const write of socket.writes) {
+      expect(Buffer.byteLength(write)).toBeLessThan(
+        TRACE_LINE_CAP + TAG_CAP + 64
+      );
+    }
+  });
+
+  it("bounds the tag of a parsing line that declares no literal at all", async () => {
+    const { socket, dispatched } = makeHarness(undefined, false, true);
+
+    // Nothing else stands in this line's way: it terminates, it parses, and it
+    // stays under the unconsumed-text ceiling, so no literal cap and no
+    // backpressure is between its first token and the completion carrying it.
+    // The tag ceiling is the only bound in the path.
+    const oversizedTag = "A".repeat(65000);
+    const line = `${oversizedTag} NOOP\r\n`;
+    expect(line.length).toBeLessThan(UNCONSUMED_CAP);
+
+    socket.emit("data", Buffer.from(line));
+    await settle();
+
+    expect(dispatched[0].request.type).toBe("NOOP");
+    expect(socket.paused).toBe(false);
+    expect(socket.writes).toEqual(["BAD OK NOOP completed\r\n"]);
+  });
+
+  it("clips what a line puts back by octets, not by UTF-16 code units", async () => {
+    const debugSpy = spyOn(logger, "debug");
+    try {
+      const { socket } = makeHarness();
+      debugSpy.mockClear();
+
+      // Every octet the peer sends that is not valid UTF-8 is decoded to one
+      // U+FFFD — one code unit inbound, three octets again on the way out. A
+      // ceiling counted in code units understates by 3x what both the wire and
+      // the journal carry, and no ASCII payload can show it.
+      socket.emit(
+        "data",
+        Buffer.concat([
+          Buffer.from("A1 "),
+          Buffer.alloc(3000, 0xff),
+          Buffer.from("\r\n")
+        ])
+      );
+      await settle();
+
+      expect(socket.writes).toHaveLength(1);
+      expect(socket.writes[0].startsWith("A1 BAD Unknown command: ")).toBe(true);
+      expect(socket.writes[0]).toContain("…[+");
+      expect(Buffer.byteLength(socket.writes[0])).toBeLessThan(
+        TRACE_LINE_CAP + TAG_CAP + 64
+      );
+
+      const journaled = debugSpy.mock.calls.flatMap(([, fields]) => {
+        const { input, command } = (fields ?? {}) as {
+          input?: string;
+          command?: string;
+        };
+        return [input, command].filter((v): v is string => typeof v === "string");
+      });
+      expect(journaled.length).toBeGreaterThan(0);
+      for (const entry of journaled) {
+        expect(Buffer.byteLength(entry)).toBeLessThanOrEqual(
+          TRACE_LINE_CAP + 16
+        );
+      }
+    } finally {
+      debugSpy.mockRestore();
     }
   });
 
