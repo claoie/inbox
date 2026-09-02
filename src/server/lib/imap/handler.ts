@@ -60,11 +60,12 @@ const chainsUnboundedArguments = (request: ImapRequest): boolean =>
 // inside a BAD completion. A token longer than the ceiling does not match at
 // all, so the payload is answered untagged rather than clipped and echoed.
 //
-// The ceiling only has to sit far below a payload, not close above a tag: any
-// conforming tag it refuses is a session wedged on a completion that never
-// arrives, until SOCKET_TIMEOUT_MS. RFC 3501 §9 puts no length on a tag and
-// UUID-shaped ones run 36 octets, so 128 clears every shape in use while
-// staying 64x under MAX_LITERAL_BYTES.
+// The ceiling only has to sit far below a payload, not close above a tag: a
+// conforming tag it refuses is a command answered untagged and never run, so
+// the peer retries it rather than losing the completion for a side effect that
+// already landed. RFC 3501 §9 puts no length on a tag and UUID-shaped ones run
+// 36 octets, so 128 clears every shape in use while staying 64x under
+// MAX_LITERAL_BYTES.
 //
 // The class stops at \x7f because a regex quantifier counts UTF-16 code
 // units: admitting \x80 and up would let 128 of them reach 512 octets on the
@@ -74,8 +75,13 @@ const MAX_COMMAND_TAG_BYTES = 128;
 const COMMAND_TAG = new RegExp(
   `^\\s*([^\\s(){%*"\\\\+\\x00-\\x1f\\x7f-\\uffff]{1,${MAX_COMMAND_TAG_BYTES}})(?=\\s|$)`
 );
-const commandTag = (input: string): string =>
-  COMMAND_TAG.exec(input)?.[1] || "BAD";
+const commandTag = (input: string): string | null =>
+  COMMAND_TAG.exec(input)?.[1] ?? null;
+
+// What a line with no answerable tag is completed with. `BAD` reads like one
+// and is a legal tag, so a peer holding a real BAD-tagged command would match
+// the completion to that one instead.
+const UNTAGGED = "*";
 
 // Verb of a command line, uppercased. Second token of the FIRST line, so it
 // still reads correctly once `pendingCommand` spans several lines.
@@ -282,9 +288,17 @@ export class ImapRequestHandler {
     ): Promise<void> => {
       try {
         const parseResult = parseCommand(input, literals);
+        const tag = commandTag(input);
         if (parseResult.success && parseResult.value) {
-          const { request } = parseResult.value;
-          await this.handleRequest(commandTag(input), request);
+          // Refused before dispatch, not merely worded differently.
+          // `handleRequest` switches straight into `session.*`, so a line whose
+          // tag has no answer would land an APPEND / STORE / EXPUNGE side
+          // effect and then be retried by a peer whose own tag never completed.
+          if (tag === null) {
+            session.write(`${UNTAGGED} BAD Command tag too long\r\n`);
+            return;
+          }
+          await this.handleRequest(tag, parseResult.value.request);
         } else {
           logger.debug("Parse failed", {
             component: "imap.parser",
@@ -292,11 +306,13 @@ export class ImapRequestHandler {
             error: parseResult.error
           });
           const errorMsg = parseResult.error || "Invalid command syntax";
-          session.write(`${commandTag(input)} BAD ${clip(errorMsg)}\r\n`);
+          session.write(`${tag ?? UNTAGGED} BAD ${clip(errorMsg)}\r\n`);
         }
       } catch (error) {
         logger.error("Error processing command", { component: "imap" }, error);
-        session.write(`${commandTag(input)} BAD Internal server error\r\n`);
+        session.write(
+          `${commandTag(input) ?? UNTAGGED} BAD Internal server error\r\n`
+        );
       }
     };
 
@@ -345,7 +361,7 @@ export class ImapRequestHandler {
       // will not accept, so a client can tell this apart from a generic
       // failure and stop retrying the same oversized message.
       session.write(
-        `${commandTag(commandText)} NO [TOOBIG] Literal exceeds ${cap} octets\r\n`
+        `${commandTag(commandText) ?? UNTAGGED} NO [TOOBIG] Literal exceeds ${cap} octets\r\n`
       );
 
       pendingCommand = null;

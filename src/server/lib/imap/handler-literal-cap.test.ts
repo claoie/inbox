@@ -185,7 +185,9 @@ describe("IMAP literal ceiling", () => {
       });
       expect(journaled.some((entry) => entry.includes("S3cret"))).toBe(true);
       for (const entry of journaled) {
-        expect(entry.length).toBeLessThanOrEqual(TRACE_LINE_CAP + 16);
+        expect(Buffer.byteLength(entry)).toBeLessThanOrEqual(
+          TRACE_LINE_CAP + 16
+        );
       }
     } finally {
       debugSpy.mockRestore();
@@ -234,9 +236,9 @@ describe("IMAP literal ceiling", () => {
       `A1 NO [TOOBIG] Literal exceeds ${SMALL_CAP} octets\r\n`
     );
     // Anchored on what the wire actually carries, not only on what it must
-    // not: the fallback tag, and the payload's SECOND token, which is what
-    // reaches the peer once its first one is refused as a tag.
-    expect(socket.writes[1]).toBe("BAD BAD Unknown command: NOTTHETAG\r\n");
+    // not: the untagged completion, and the payload's SECOND token, which is
+    // what reaches the peer once its first one is refused as a tag.
+    expect(socket.writes[1]).toBe("* BAD Unknown command: NOTTHETAG\r\n");
     expect(JSON.stringify(socket.writes)).not.toContain("S3cret");
     for (const write of socket.writes) expect(write.length).toBeLessThan(256);
   });
@@ -291,7 +293,7 @@ describe("IMAP literal ceiling", () => {
     await settle();
 
     expect(socket.writes).toHaveLength(1);
-    expect(socket.writes[0].startsWith("BAD BAD ")).toBe(true);
+    expect(socket.writes[0].startsWith("* BAD ")).toBe(true);
     expect(socket.writes[0]).not.toContain("é");
     for (const write of socket.writes) {
       expect(Buffer.byteLength(write)).toBeLessThanOrEqual(TAG_CAP);
@@ -324,11 +326,11 @@ describe("IMAP literal ceiling", () => {
     expect(socket.writes[0]).toBe(
       `A1 NO [TOOBIG] Literal exceeds ${SMALL_CAP} octets\r\n`
     );
-    // The line does parse, and is answered as the command it is — the bound is
-    // on the tag it is answered with, not on whether it runs.
-    expect(dispatched[0].request.type).toBe("NOOP");
-    expect(dispatched[0].tag).toBe("BAD");
-    expect(socket.writes[1]).toBe("BAD OK NOOP completed\r\n");
+    // The line parses, and is still refused: a completion the peer cannot
+    // match to a tag it sent does not complete anything, so a command that
+    // reaches `session.*` would land its side effect and then be retried.
+    expect(dispatched).toHaveLength(0);
+    expect(socket.writes[1]).toBe("* BAD Command tag too long\r\n");
     for (const write of socket.writes) {
       expect(Buffer.byteLength(write)).toBeLessThan(
         TRACE_LINE_CAP + TAG_CAP + 64
@@ -350,9 +352,9 @@ describe("IMAP literal ceiling", () => {
     socket.emit("data", Buffer.from(line));
     await settle();
 
-    expect(dispatched[0].request.type).toBe("NOOP");
+    expect(dispatched).toHaveLength(0);
     expect(socket.paused).toBe(false);
-    expect(socket.writes).toEqual(["BAD OK NOOP completed\r\n"]);
+    expect(socket.writes).toEqual(["* BAD Command tag too long\r\n"]);
   });
 
   it("clips what a line puts back by octets, not by UTF-16 code units", async () => {
@@ -379,6 +381,27 @@ describe("IMAP literal ceiling", () => {
       expect(socket.writes[0].startsWith("A1 BAD Unknown command: ")).toBe(true);
       expect(socket.writes[0]).toContain("…[+");
       expect(Buffer.byteLength(socket.writes[0])).toBeLessThan(
+        TRACE_LINE_CAP + TAG_CAP + 64
+      );
+
+      // The gate deciding WHETHER to clip is a second octet count, and the
+      // payload above is past LINE_CAP on both measures so it cannot separate
+      // them. 200 replacement characters are 200 code units and 600 octets:
+      // under the cap by the wrong measure, over it by the named one.
+      socket.emit(
+        "data",
+        Buffer.concat([
+          Buffer.from("A2 "),
+          Buffer.alloc(200, 0xff),
+          Buffer.from("\r\n")
+        ])
+      );
+      await settle();
+
+      expect(socket.writes).toHaveLength(2);
+      expect(socket.writes[1].startsWith("A2 BAD Unknown command: ")).toBe(true);
+      expect(socket.writes[1]).toContain("…[+");
+      expect(Buffer.byteLength(socket.writes[1])).toBeLessThan(
         TRACE_LINE_CAP + TAG_CAP + 64
       );
 
