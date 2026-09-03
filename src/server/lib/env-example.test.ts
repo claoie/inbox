@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { existsSync, readdirSync, statSync } from "fs";
 import path from "path";
+import ts from "typescript";
 
 const REPO_ROOT = path.resolve(import.meta.dir, "../../..");
 
@@ -24,9 +25,7 @@ const SKIP_DIR = /^(?:node_modules|build|dist|coverage|\.git)$/;
 
 /**
  * Files that hand the env object itself to a reader static extraction cannot
- * follow, each with the names that reader supplies. The names are checked
- * against the documentation like any other read, and the file is checked for
- * still handing anything off, so neither half of the claim can rot unnoticed.
+ * follow, each with the names that reader supplies.
  */
 const ENV_HANDOFFS: Record<string, string[]> = {
   "src/server/lib/push.ts": ["PUSH_VAPID_PUBLIC_KEY", "PUSH_VAPID_PRIVATE_KEY"],
@@ -51,162 +50,100 @@ const filesUnder = (roots: string[]): string[] =>
     return sourceFiles(dir, root !== ".");
   });
 
-const ENV_OBJECT = /(?:process|Bun)\.env\s*(?:\?\.)?\[\s*$/;
-const DELETE_ENV_OBJECT = /delete\s+(?:process|Bun)\.env\s*(?:\?\.)?\[\s*$/;
-const ASSIGNMENT = /^\s*(?:\?\?|\|\||&&|\+|-|\*|\/|%|\*\*)?=(?!=)/;
+/** JSX is legal in `.js` here, and a `.ts` cast (`<T>value`) is not JSX, so no
+ *  single kind parses every extension. */
+const SCRIPT_KINDS: Record<string, ts.ScriptKind> = {
+  ".ts": ts.ScriptKind.TS,
+  ".mts": ts.ScriptKind.TS,
+  ".cts": ts.ScriptKind.TS,
+  ".tsx": ts.ScriptKind.TSX,
+  ".js": ts.ScriptKind.JS,
+  ".mjs": ts.ScriptKind.JS,
+  ".cjs": ts.ScriptKind.JS,
+  ".jsx": ts.ScriptKind.JSX,
+};
 
-interface Scanned {
-  /** Comment bodies and string contents blanked to spaces. A `${…}` span in a
-   *  template literal is code, so it survives the blanking. */
-  code: string;
-  /** `env["NAME"]` names, collected before blanking hides them. */
-  bracketReads: string[];
+const isEnvObject = (node: ts.Node): node is ts.PropertyAccessExpression =>
+  ts.isPropertyAccessExpression(node) &&
+  node.name.text === "env" &&
+  ts.isIdentifier(node.expression) &&
+  (node.expression.text === "process" || node.expression.text === "Bun");
+
+/** A variable the server assigns to itself is not a surface an operator
+ *  supplies, whatever the operator. */
+const isWrite = (access: ts.Node): boolean => {
+  const { parent } = access;
+  if (ts.isDeleteExpression(parent)) return true;
+  return (
+    ts.isBinaryExpression(parent) &&
+    parent.left === access &&
+    parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+    parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+  );
+};
+
+const bindingNames = (pattern: ts.ObjectBindingPattern): string[] =>
+  pattern.elements.flatMap((element) => {
+    const key = element.propertyName ?? element.name;
+    return ts.isIdentifier(key) ? [key.text] : [];
+  });
+
+const literalNames = (pattern: ts.ObjectLiteralExpression): string[] =>
+  pattern.properties.flatMap((property) => {
+    if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) return [];
+    return ts.isIdentifier(property.name) ? [property.name.text] : [];
+  });
+
+/**
+ * Names the parent expression takes off the env object, or `undefined` when the
+ * object itself is handed on to a reader this file cannot follow.
+ */
+const namesTakenFrom = (env: ts.PropertyAccessExpression): string[] | undefined => {
+  const { parent } = env;
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === env) {
+    return isWrite(parent) ? [] : [parent.name.text];
+  }
+  if (ts.isElementAccessExpression(parent) && parent.expression === env) {
+    const key = parent.argumentExpression;
+    const literal = ts.isStringLiteralLike(key) ? key.text : undefined;
+    return literal === undefined || isWrite(parent) ? [] : [literal];
+  }
+  if (ts.isVariableDeclaration(parent) && parent.initializer === env) {
+    return ts.isObjectBindingPattern(parent.name) ? bindingNames(parent.name) : undefined;
+  }
+  if (
+    ts.isBinaryExpression(parent) &&
+    parent.right === env &&
+    parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+    ts.isObjectLiteralExpression(parent.left)
+  ) {
+    return literalNames(parent.left);
+  }
+  return undefined;
+};
+
+interface Extracted {
+  names: string[];
+  /** 1-based lines of the handoffs this file cannot follow. */
+  escapes: number[];
 }
 
-const scan = (source: string): Scanned => {
-  const out = source.split("");
-  const bracketReads: string[] = [];
-  const interpolations: number[] = [];
-  let braceDepth = 0;
-  let i = 0;
-
-  const blank = (from: number, to: number) => {
-    for (let j = from; j < to; j++) if (out[j] !== "\n") out[j] = " ";
-  };
-
-  const recordBracketRead = (open: number, close: number, body: string) => {
-    if (body.includes("\\") || !ENV_OBJECT.test(source.slice(0, open))) return;
-    if (DELETE_ENV_OBJECT.test(source.slice(0, open))) return;
-    const bracket = source.indexOf("]", close);
-    if (bracket === -1 || ASSIGNMENT.test(source.slice(bracket + 1))) return;
-    bracketReads.push(body);
-  };
-
-  /** Blanks template text up to the closing backtick or the next `${`, leaving
-   *  the interpolation for the main loop to read as the code it is. */
-  const blankTemplateText = (from: number): number => {
-    let j = from;
-    while (j < source.length) {
-      if (source[j] === "\\") {
-        j += 2;
-        continue;
-      }
-      if (source[j] === "`") {
-        blank(from, j);
-        return j + 1;
-      }
-      if (source[j] === "$" && source[j + 1] === "{") {
-        blank(from, j);
-        interpolations.push(braceDepth);
-        return j + 2;
-      }
-      j += 1;
-    }
-    blank(from, source.length);
-    return source.length;
-  };
-
-  while (i < source.length) {
-    const two = source.slice(i, i + 2);
-    if (two === "//") {
-      const end = source.indexOf("\n", i);
-      blank(i, end === -1 ? source.length : end);
-      i = end === -1 ? source.length : end;
-    } else if (two === "/*") {
-      const end = source.indexOf("*/", i + 2);
-      const stop = end === -1 ? source.length : end + 2;
-      blank(i, stop);
-      i = stop;
-    } else if (source[i] === '"' || source[i] === "'") {
-      const quote = source[i];
-      let j = i + 1;
-      while (j < source.length && source[j] !== quote) {
-        if (source[j] === "\\") j += 1;
-        j += 1;
-      }
-      recordBracketRead(i, j, source.slice(i + 1, j));
-      blank(i + 1, j);
-      i = j + 1;
-    } else if (source[i] === "`") {
-      const plain = /^`([^`\\$]*)`/.exec(source.slice(i));
-      if (plain) recordBracketRead(i, i + plain[0].length - 1, plain[1]);
-      i = blankTemplateText(i + 1);
-    } else if (source[i] === "{") {
-      braceDepth += 1;
-      i += 1;
-    } else if (source[i] === "}") {
-      if (interpolations[interpolations.length - 1] === braceDepth) {
-        interpolations.pop();
-        i = blankTemplateText(i + 1);
-      } else {
-        braceDepth = Math.max(0, braceDepth - 1);
-        i += 1;
-      }
-    } else {
-      i += 1;
-    }
-  }
-
-  return { code: out.join(""), bracketReads };
-};
-
-const DOT_READ = /(delete\s+)?(?:process|Bun)\.env\s*(?:\?\.|\.)\s*([A-Za-z_$][A-Za-z0-9_$]*)/g;
-
-/**
- * `env.NAME` on the right-hand side. A variable the server assigns to itself is
- * not a surface an operator supplies, so writes are excluded whatever their
- * operator.
- */
-const dotReads = (code: string): string[] => {
+const extract = (file: string, source: string): Extracted => {
+  const kind = SCRIPT_KINDS[path.extname(file)] ?? ts.ScriptKind.TS;
+  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, kind);
   const names: string[] = [];
-  for (const match of code.matchAll(DOT_READ)) {
-    if (match[1]) continue;
-    if (ASSIGNMENT.test(code.slice(match.index + match[0].length))) continue;
-    names.push(match[2]);
-  }
-  return names;
-};
-
-/** `const { A, B = "fallback" } = env`, single- or multi-line. */
-const destructuredReads = (code: string): string[] => {
-  const names: string[] = [];
-  for (const match of code.matchAll(/\}\s*=\s*(?:process|Bun)\.env\b/g)) {
-    const close = code.indexOf("}", match.index);
-    let depth = 0;
-    let open = -1;
-    for (let i = close; i >= 0; i--) {
-      if (code[i] === "}") depth += 1;
-      else if (code[i] === "{") {
-        depth -= 1;
-        if (depth === 0) {
-          open = i;
-          break;
-        }
-      }
+  const escapes: number[] = [];
+  const visit = (node: ts.Node) => {
+    if (isEnvObject(node)) {
+      const taken = namesTakenFrom(node);
+      if (taken) names.push(...taken);
+      else escapes.push(parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1);
     }
-    if (open === -1) continue;
-    for (const part of code.slice(open + 1, close).split(",")) {
-      names.push(part.split(/[=:]/)[0].trim());
-    }
-  }
-  return names;
+    node.forEachChild(visit);
+  };
+  visit(parsed);
+  return { names, escapes };
 };
-
-const ENV_ESCAPE = /(?:process|Bun)\.env\b(?![.?[\w$])/g;
-
-/**
- * A bare `process.env` — bound to a name, passed as an argument, spread — hands
- * the object to a reader this file cannot follow. Reporting the site is the only
- * honest option: skipping it would let an undocumented read through, and
- * guessing at the receiver's members would invent evidence.
- */
-const escapes = (code: string): number[] =>
-  [...code.matchAll(ENV_ESCAPE)]
-    .filter((match) => !/\}\s*=\s*$/.test(code.slice(0, match.index)))
-    .map((match) => match.index);
-
-const lineOf = (code: string, offset: number): number =>
-  code.slice(0, offset).split("\n").length;
 
 const collect = async (roots: string[]) => {
   const read = new Set<string>();
@@ -214,15 +151,14 @@ const collect = async (roots: string[]) => {
   const declaredHandoffs = new Set<string>();
   for (const file of filesUnder(roots)) {
     const relative = path.relative(REPO_ROOT, file);
-    const { code, bracketReads } = scan(await Bun.file(file).text());
-    for (const name of [...dotReads(code), ...destructuredReads(code), ...bracketReads]) {
+    const { names, escapes } = extract(relative, await Bun.file(file).text());
+    for (const name of names) {
       if (/^[A-Z_][A-Z0-9_]*$/.test(name)) read.add(name);
     }
-    const sites = escapes(code);
-    if (!sites.length) continue;
+    if (!escapes.length) continue;
     const declared = ENV_HANDOFFS[relative];
     if (!declared) {
-      for (const offset of sites) undeclaredEscapes.push(`${relative}:${lineOf(code, offset)}`);
+      for (const line of escapes) undeclaredEscapes.push(`${relative}:${line}`);
       continue;
     }
     declaredHandoffs.add(relative);
