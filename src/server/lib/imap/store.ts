@@ -615,9 +615,10 @@ export class Store {
    * - **Mapping.** Only a mapped destination gets a `mail_mailbox_uid` row
    *   carrying `uid_mailbox`; domain-scoped destinations (INBOX, unified
    *   `Sent Messages`, the utility folders) enumerate by `uid_domain`.
-   *   Independently, a destination anywhere in the INBOX tree records a row
-   *   under `INBOX` holding that `uid_domain` — so `APPEND INBOX` records one
-   *   row and `COPY … INBOX/accounts/<local>` records both.
+   *   Independently, a destination that scopes to INBOX — anywhere in the
+   *   tree, or one of the utility views — records a row under `INBOX` holding
+   *   that `uid_domain`, so `APPEND INBOX` records one row and
+   *   `COPY … INBOX/accounts/<local>` records both.
    * - **Placement.** A utility folder selects its rows by flag, so a write that
    *   names one sets that flag here rather than relying on the client to have
    *   sent it — an APPEND to `Drafts` without `\Draft` would otherwise land

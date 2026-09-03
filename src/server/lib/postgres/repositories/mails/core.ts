@@ -18,7 +18,11 @@ import {
   syncMailboxPivot,
   writeMailboxUid,
 } from "./counters";
-import { decideMappingWrites, type MappingWrite } from "./mapping-decisions";
+import {
+  decideMappingWrites,
+  type MappingScope,
+  type MappingWrite,
+} from "./mapping-decisions";
 import {
   computeFullMessageSize,
   type FetchMailInput,
@@ -130,21 +134,57 @@ export interface SaveMailInput {
   domain_mailbox?: string;
 }
 
+// `mail_mailbox_uid` is UNIQUE on `(user_id, mailbox, uid)` while `mails`
+// constrains only `(user_id, message_id)`, so two received rows can hold the
+// same `uid_domain` — rows written before UID reservation became atomic still
+// do, and the merge branch files them under their historical value. A domain
+// view row is a scope marker whose UID is already authoritative in
+// `mails.uid_domain`, so losing one costs a marker no read consults; aborting
+// would cost the delivery it rides on, which on the SMTP path is a NACK the
+// sender retries into the same deterministic failure. The mapped destination
+// keeps aborting — it is the only UID source its box has.
+const writeOneMapping = async (
+  write: typeof writeMailboxUid,
+  user_id: string,
+  mailbox: string,
+  mail_id: string,
+  uid: number,
+  scope: MappingScope
+): Promise<number | undefined> => {
+  try {
+    return await write(user_id, mailbox, mail_id, uid);
+  } catch (error) {
+    const duplicate = (error as { code?: string }).code === "23505";
+    if (scope !== "domain" || !duplicate) throw error;
+    logger.warn("Skipping a domain view mapping row whose UID is already taken", {
+      user_id,
+      mailbox,
+      mail_id,
+      uid,
+    });
+    return undefined;
+  }
+};
+
 /**
  * Issues the mapping writes for one row and returns the UID persisted for the
  * mapped destination, which `storeMail` reconciles onto `mail.uid.account`.
  * The rows are independent, so the round trips overlap.
+ *
+ * `write` is a seam: this is the only place the decided rows become round
+ * trips, and there is no other way to drive it without a pool.
  */
-const recordMappings = async (
+export const recordMappings = async (
   user_id: string,
   mail_id: string,
   writes: MappingWrite[],
-  mappedDestination: string | undefined
+  mappedDestination: string | undefined,
+  write: typeof writeMailboxUid = writeMailboxUid
 ): Promise<number | undefined> => {
   const persisted = await Promise.all(
-    writes.map(async ({ mailbox, uid }) => ({
+    writes.map(async ({ mailbox, uid, scope }) => ({
       mailbox,
-      uid: await writeMailboxUid(user_id, mailbox, mail_id, uid),
+      uid: await writeOneMapping(write, user_id, mailbox, mail_id, uid, scope),
     }))
   );
   return persisted.find(({ mailbox }) => mailbox === mappedDestination)?.uid;

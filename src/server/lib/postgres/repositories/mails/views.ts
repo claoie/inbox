@@ -11,11 +11,11 @@ import { IS_SPAM, DRAFT } from "../../models";
  *  - **Domain views** — `INBOX`, the unified `Sent Messages`, and the utility
  *    views below. Membership is a predicate over `mails` and UIDs come from
  *    `mails.uid_domain`. `INBOX` additionally carries a mapping row for every
- *    mail filed into its tree, holding that same `uid_domain`; no read
- *    consults it. Those rows are the tree's *scope*, not its membership — the
- *    predicate still applies on top, so a spam-classified delivery holds a row
- *    while INBOX excludes it, and un-marking it restores the mail to INBOX
- *    with no row to re-create.
+ *    mail filed into its tree or into one of the utility views, holding that
+ *    same `uid_domain`; no read consults it. Those rows are the tree's
+ *    *scope*, not its membership — the predicate still applies on top, so a
+ *    spam-classified mail holds a row while INBOX excludes it, and un-marking
+ *    it restores the mail to INBOX with no row to re-create.
  *
  * The rules live here rather than in `imap.ts` so `counters.ts` can apply the
  * same branch without importing the module that imports it.
@@ -84,18 +84,29 @@ export const isInboxTree = (mailbox: string | null, sent: boolean): boolean =>
 
 /**
  * The domain view a write into `destination` records a mapping row under, or
- * `undefined` for a destination outside the INBOX tree. `destination` is the
+ * `undefined` when the destination claims no INBOX scope. `destination` is the
  * box the write names — the wire box of an IMAP `COPY` / `MOVE` / `APPEND`,
  * and the per-account view of an SMTP delivery. Whether the row may hold that
  * membership is `decideMappingWrites`' question, not this one's.
  *
- * The read-side twin is `isInboxTree`, which decides which boxes apply the
- * INBOX predicate; it spells the unified view `null` because a domain view has
- * no name to select on, and a mapping row does, so this one takes a string.
+ * The utility views scope to INBOX alongside the tree: they hold an ordinary
+ * received-lane row in the user's own domain space, claim no mapping row of
+ * their own, and select it by a flag the client can clear at any time — so an
+ * `APPEND Junk` followed by "not spam", or an `APPEND Drafts` followed by
+ * `STORE -FLAGS (\Draft)`, has to land the mail in INBOX. Without the scope
+ * row it would land in no mailbox at all. `Starred` and `Trash` are mapped
+ * boxes holding a distinct clone, and scope to nothing.
+ *
+ * The read-side twin for the tree is `isInboxTree`, which decides which boxes
+ * apply the INBOX predicate; it spells the unified view `null` because a domain
+ * view has no name to select on, and a mapping row does, so this one takes a
+ * string. The utility views sit outside that pairing — their own read applies a
+ * flag predicate, not INBOX's.
  */
 export const domainViewForDestination = (destination: string): string | undefined =>
   destination.toUpperCase() === INBOX_VIEW ||
-  destination.startsWith(INBOX_ACCOUNTS_PREFIX)
+  destination.startsWith(INBOX_ACCOUNTS_PREFIX) ||
+  isUtilityView(destination)
     ? INBOX_VIEW
     : undefined;
 

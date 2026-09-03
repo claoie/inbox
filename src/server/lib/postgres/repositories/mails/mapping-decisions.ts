@@ -1,5 +1,14 @@
-/** One `mail_mailbox_uid` row a saveMail branch should write for a mail. */
-export type MappingWrite = { mailbox: string; uid: number };
+/** Which UID space a mapping row's `uid` was drawn from. */
+export type MappingScope = "mailbox" | "domain";
+
+/**
+ * One `mail_mailbox_uid` row a saveMail branch should write for a mail.
+ *
+ * `scope` distinguishes the mapped destination's own counter from
+ * `mails.uid_domain`, which the two rows draw from independently — and which
+ * decides how a duplicate has to be handled. See `recordMappings`.
+ */
+export type MappingWrite = { mailbox: string; uid: number; scope: MappingScope };
 
 export interface MappingWriteInput {
   /** The mapped destination the write named; draws `uid_mailbox`. */
@@ -34,9 +43,11 @@ export const decideMappingWrites = ({
   sent,
 }: MappingWriteInput): MappingWrite[] => {
   const writes: MappingWrite[] = [];
-  if (mailbox && (uid_mailbox ?? 0) > 0) writes.push({ mailbox, uid: uid_mailbox as number });
+  if (mailbox && (uid_mailbox ?? 0) > 0) {
+    writes.push({ mailbox, uid: uid_mailbox as number, scope: "mailbox" });
+  }
   if (domain_mailbox && !sent && (uid_domain ?? 0) > 0) {
-    writes.push({ mailbox: domain_mailbox, uid: uid_domain as number });
+    writes.push({ mailbox: domain_mailbox, uid: uid_domain as number, scope: "domain" });
   }
   return writes;
 };
