@@ -57,14 +57,10 @@ mock.module("server", () => ({
 import { sendMailgunMail } from "./mailgun";
 import { MailDataToSend } from "common";
 
-// Restore the process-global `fs` mock at end of file. `mock.module("fs", ...)`
-// above replaces the export graph-wide, so `fs.readFileSync` returns
-// `Buffer.from("file-content")` for every test file that loads after this
-// one — including `fetch-helpers.test.ts` and `starttls.test.ts` whose
-// attachment size arithmetic and source-scan reads then fail. Bun 1.4.0
-// happens to load files in an order that hides the leak locally; bun
-// 1.3.14 in CD exposes it (2026-09-03 CD break, 19 fail across 2337).
-// Preload captures the real `fs` onto `__REAL_FS`; this re-mocks it back.
+// Restore the process-global `fs` mock so subsequent test files see the
+// real bindings. Bun's `mock.module` replaces the export graph-wide
+// with no per-file scope; preload captures the real `fs` onto
+// `__REAL_FS` (see `reference_bun_mock_module_global_hoisting.md`).
 afterAll(() => {
   const realFs = (globalThis as Record<string, unknown>).__REAL_FS;
   if (realFs) mock.module("fs", () => realFs);

@@ -157,6 +157,8 @@ describe("healthRouter GET /", () => {
 
   afterAll(() => {
     restoreEnv();
+    const realFsSnapshot = (globalThis as Record<string, unknown>).__REAL_FS;
+    if (realFsSnapshot) mock.module("fs", () => realFsSnapshot);
   });
 
   it("returns 200 with status:'success' when everything is healthy (SSL configured)", async () => {
