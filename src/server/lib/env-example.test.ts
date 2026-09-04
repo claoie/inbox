@@ -94,26 +94,43 @@ const literalNames = (pattern: ts.ObjectLiteralExpression): string[] =>
     return ts.isIdentifier(property.name) ? [property.name.text] : [];
   });
 
+/** A cast, parenthesis or non-null assertion sits between the env object and
+ *  the expression that reads it without changing what is read. */
+const throughWrappers = (node: ts.Node): ts.Node => {
+  let outer = node;
+  while (
+    ts.isParenthesizedExpression(outer.parent) ||
+    ts.isAsExpression(outer.parent) ||
+    ts.isNonNullExpression(outer.parent) ||
+    ts.isSatisfiesExpression(outer.parent)
+  ) {
+    outer = outer.parent;
+  }
+  return outer;
+};
+
 /**
  * Names the parent expression takes off the env object, or `undefined` when the
- * object itself is handed on to a reader this file cannot follow.
+ * object itself is handed on to a reader this file cannot follow. A computed
+ * key is such a handoff: it supplies a name no static walk can see.
  */
 const namesTakenFrom = (env: ts.PropertyAccessExpression): string[] | undefined => {
-  const { parent } = env;
-  if (ts.isPropertyAccessExpression(parent) && parent.expression === env) {
+  const read = throughWrappers(env);
+  const { parent } = read;
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === read) {
     return isWrite(parent) ? [] : [parent.name.text];
   }
-  if (ts.isElementAccessExpression(parent) && parent.expression === env) {
+  if (ts.isElementAccessExpression(parent) && parent.expression === read) {
+    if (isWrite(parent)) return [];
     const key = parent.argumentExpression;
-    const literal = ts.isStringLiteralLike(key) ? key.text : undefined;
-    return literal === undefined || isWrite(parent) ? [] : [literal];
+    return ts.isStringLiteralLike(key) ? [key.text] : undefined;
   }
-  if (ts.isVariableDeclaration(parent) && parent.initializer === env) {
+  if (ts.isVariableDeclaration(parent) && parent.initializer === read) {
     return ts.isObjectBindingPattern(parent.name) ? bindingNames(parent.name) : undefined;
   }
   if (
     ts.isBinaryExpression(parent) &&
-    parent.right === env &&
+    parent.right === read &&
     parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
     ts.isObjectLiteralExpression(parent.left)
   ) {
@@ -126,6 +143,12 @@ interface Extracted {
   names: string[];
   /** 1-based lines of the handoffs this file cannot follow. */
   escapes: number[];
+  /**
+   * Identifiers, plus string literals whose whole text is the literal — the two
+   * ways a reader can name a key. A name embedded in a sentence is neither, so
+   * a hint string cannot keep a declared handoff name alive on its own.
+   */
+  spellings: Set<string>;
 }
 
 const extract = (file: string, source: string): Extracted => {
@@ -133,7 +156,9 @@ const extract = (file: string, source: string): Extracted => {
   const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, kind);
   const names: string[] = [];
   const escapes: number[] = [];
+  const spellings = new Set<string>();
   const visit = (node: ts.Node) => {
+    if (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) spellings.add(node.text);
     if (isEnvObject(node)) {
       const taken = namesTakenFrom(node);
       if (taken) names.push(...taken);
@@ -142,16 +167,17 @@ const extract = (file: string, source: string): Extracted => {
     node.forEachChild(visit);
   };
   visit(parsed);
-  return { names, escapes };
+  return { names, escapes, spellings };
 };
 
 const collect = async (roots: string[]) => {
   const read = new Set<string>();
   const undeclaredEscapes: string[] = [];
   const declaredHandoffs = new Set<string>();
+  const staleHandoffNames: string[] = [];
   for (const file of filesUnder(roots)) {
     const relative = path.relative(REPO_ROOT, file);
-    const { names, escapes } = extract(relative, await Bun.file(file).text());
+    const { names, escapes, spellings } = extract(relative, await Bun.file(file).text());
     for (const name of names) {
       if (/^[A-Z_][A-Z0-9_]*$/.test(name)) read.add(name);
     }
@@ -162,9 +188,12 @@ const collect = async (roots: string[]) => {
       continue;
     }
     declaredHandoffs.add(relative);
-    for (const name of declared) read.add(name);
+    for (const name of declared) {
+      if (spellings.has(name)) read.add(name);
+      else staleHandoffNames.push(`${relative}:${name}`);
+    }
   }
-  return { read, undeclaredEscapes, declaredHandoffs };
+  return { read, undeclaredEscapes, declaredHandoffs, staleHandoffNames };
 };
 
 const scans = new Map<string, ReturnType<typeof collect>>();
@@ -202,10 +231,11 @@ describe(".env.example", () => {
     expect(undeclaredEscapes.sort()).toEqual([]);
   });
 
-  it("declares no env handoff that has gone away", async () => {
-    const { declaredHandoffs } = await collectOnce(ALL_ROOTS);
+  it("declares no env handoff or handed-off name that has gone away", async () => {
+    const { declaredHandoffs, staleHandoffNames } = await collectOnce(ALL_ROOTS);
     const stale = Object.keys(ENV_HANDOFFS)
       .filter((file) => !declaredHandoffs.has(file))
+      .concat(staleHandoffNames)
       .sort();
     expect(stale).toEqual([]);
   });
