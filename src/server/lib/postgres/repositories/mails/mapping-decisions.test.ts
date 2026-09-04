@@ -80,9 +80,9 @@ describe("the write paths that feed decideMappingWrites", () => {
 
   it("SMTP delivery files received mail under INBOX", async () => {
     const receive = await read("../../../mails/receive.ts");
-    expect(
-      receive.includes("domain_mailbox: mail.sent ? undefined : INBOX_VIEW")
-    ).toBe(true);
+    // Unconditional on purpose: the `sent` rule lives in `decideMappingWrites`,
+    // which reads the written row rather than this caller's input.
+    expect(receive.includes("domain_mailbox: INBOX_VIEW")).toBe(true);
   });
 
   it("an IMAP write files its destination's domain view", async () => {

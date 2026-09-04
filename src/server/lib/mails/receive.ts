@@ -157,9 +157,11 @@ export const saveMail = async (
     spam_reasons: spamResult?.reasons ?? null,
     is_spam: spamResult?.isSpam ?? false,
     // Received mail is in the INBOX tree; the per-account view above is a
-    // sub-view beneath it, and records its own row against `uid_mailbox`. The
-    // sent lane's own domain view is untracked.
-    domain_mailbox: mail.sent ? undefined : INBOX_VIEW,
+    // sub-view beneath it, and records its own row against `uid_mailbox`.
+    // Whether the row that ends up written may hold that membership is
+    // `decideMappingWrites`' question — it gates on the written row's own
+    // `sent`, which on the merge branch is the surviving row's, not this one's.
+    domain_mailbox: INBOX_VIEW,
   };
 
   try {

@@ -191,7 +191,10 @@ describe("domainViewForDestination — which writes record INBOX membership", ()
   it("records nothing for the mapped utility destinations", () => {
     // Starred and Trash take a mapping row of their own at their own UID, and
     // the row a COPY files there is a distinct clone — scoping it to INBOX is
-    // exactly the over-counting this membership exists to close.
+    // exactly the over-counting this membership exists to close. The MOVE
+    // clone, which has no original left behind, is left unscoped by the same
+    // rule; giving it a home is a prerequisite of the read cutover, not of
+    // this write rule.
     expect(domainViewForDestination("Starred")).toBeUndefined();
     expect(domainViewForDestination("Trash")).toBeUndefined();
   });

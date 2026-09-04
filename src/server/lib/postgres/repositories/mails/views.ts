@@ -94,8 +94,16 @@ export const isInboxTree = (mailbox: string | null, sent: boolean): boolean =>
  * their own, and select it by a flag the client can clear at any time — so an
  * `APPEND Junk` followed by "not spam", or an `APPEND Drafts` followed by
  * `STORE -FLAGS (\Draft)`, has to land the mail in INBOX. Without the scope
- * row it would land in no mailbox at all. `Starred` and `Trash` are mapped
- * boxes holding a distinct clone, and scope to nothing.
+ * row it would land in no mailbox at all.
+ *
+ * `Starred` and `Trash` are mapped boxes holding a distinct clone, and are
+ * deliberately left unscoped rather than settled: a COPY leaves the original
+ * in INBOX carrying its own row, so scoping the clone too would be the
+ * over-counting this rule exists to close. A MOVE leaves no original, so a
+ * clone whose last mapped pivot is later dropped — an un-star, or a Trash
+ * `STORE -FLAGS (\Deleted)` — ends up holding no mapping row of any kind. It
+ * stays in INBOX today only because INBOX still selects by predicate; a read
+ * that selects on the mapping table has to give that row a home first.
  *
  * The read-side twin for the tree is `isInboxTree`, which decides which boxes
  * apply the INBOX predicate; it spells the unified view `null` because a domain

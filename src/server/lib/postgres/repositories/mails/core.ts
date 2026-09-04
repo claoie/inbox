@@ -143,6 +143,13 @@ export interface SaveMailInput {
 // would cost the delivery it rides on, which on the SMTP path is a NACK the
 // sender retries into the same deterministic failure. The mapped destination
 // keeps aborting — it is the only UID source its box has.
+//
+// A skipped marker is silent past the warn line, so it is a debt the read
+// cutover has to settle before it can select on this table: no received,
+// unexpunged row may lack its domain view row. The repair for a colliding pair
+// is to renumber the loser to a fresh `uid_domain` above the counter — that
+// column is the authority and the duplicates are a legacy artifact — rather
+// than to leave one of the two unmarked and invisible.
 const writeOneMapping = async (
   write: typeof writeMailboxUid,
   user_id: string,
