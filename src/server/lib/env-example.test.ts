@@ -82,17 +82,38 @@ const isWrite = (access: ts.Node): boolean => {
   );
 };
 
-const bindingNames = (pattern: ts.ObjectBindingPattern): string[] =>
-  pattern.elements.flatMap((element) => {
-    const key = element.propertyName ?? element.name;
-    return ts.isIdentifier(key) ? [key.text] : [];
-  });
+/**
+ * Names a destructuring key supplies, or `undefined` when it supplies a name no
+ * static walk can see. An identifier and a string literal are both resolvable; a
+ * computed key is not, and neither is a rest element, which takes the whole
+ * object rather than a name.
+ */
+const destructuredName = (key: ts.Node): string | undefined =>
+  ts.isIdentifier(key) || ts.isStringLiteralLike(key) ? key.text : undefined;
 
-const literalNames = (pattern: ts.ObjectLiteralExpression): string[] =>
-  pattern.properties.flatMap((property) => {
-    if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) return [];
-    return ts.isIdentifier(property.name) ? [property.name.text] : [];
-  });
+const bindingNames = (pattern: ts.ObjectBindingPattern): string[] | undefined => {
+  const names: string[] = [];
+  for (const element of pattern.elements) {
+    if (element.dotDotDotToken) return undefined;
+    const name = destructuredName(element.propertyName ?? element.name);
+    if (name === undefined) return undefined;
+    names.push(name);
+  }
+  return names;
+};
+
+const literalNames = (pattern: ts.ObjectLiteralExpression): string[] | undefined => {
+  const names: string[] = [];
+  for (const property of pattern.properties) {
+    if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) {
+      return undefined;
+    }
+    const name = destructuredName(property.name);
+    if (name === undefined) return undefined;
+    names.push(name);
+  }
+  return names;
+};
 
 /** A cast, parenthesis or non-null assertion sits between the env object and
  *  the expression that reads it without changing what is read. */
@@ -101,6 +122,7 @@ const throughWrappers = (node: ts.Node): ts.Node => {
   while (
     ts.isParenthesizedExpression(outer.parent) ||
     ts.isAsExpression(outer.parent) ||
+    ts.isTypeAssertionExpression(outer.parent) ||
     ts.isNonNullExpression(outer.parent) ||
     ts.isSatisfiesExpression(outer.parent)
   ) {
@@ -112,7 +134,8 @@ const throughWrappers = (node: ts.Node): ts.Node => {
 /**
  * Names the parent expression takes off the env object, or `undefined` when the
  * object itself is handed on to a reader this file cannot follow. A computed
- * key is such a handoff: it supplies a name no static walk can see.
+ * key and a rest element are both such handoffs: one supplies a name no static
+ * walk can see, the other hands over every name at once.
  */
 const namesTakenFrom = (env: ts.PropertyAccessExpression): string[] | undefined => {
   const read = throughWrappers(env);
