@@ -865,6 +865,71 @@ describe("IMAP literal-chain ceiling", () => {
     expect(dispatched).toEqual([]);
   });
 
+  it("refuses rather than closes a chained synchronizing declaration", async () => {
+    const { socket, dispatched } = makeHarness();
+
+    // The chain ceiling counts what is held. A synchronizing declaration is
+    // held by nothing — the continuation is withheld, so a conforming client
+    // sends no payload — which is why the unchained path answers it `NO` and
+    // keeps serving. Counting it as held tears the session down instead.
+    socket.emit("data", Buffer.from("A1 LOGIN {5+}\r\n"));
+    await settle();
+    socket.emit("data", Buffer.from("admin"));
+    await new Promise((r) => setTimeout(r, 1));
+    socket.emit("data", Buffer.from(` {${PENDING_CAP + 1}}\r\n`));
+    await settle();
+
+    expect(socket.writes).toEqual([
+      `A1 NO [TOOBIG] Literal exceeds ${SMALL_CAP} octets\r\n`
+    ]);
+    expect(socket.destroyed).toBe(false);
+    expect(dispatched).toEqual([]);
+  });
+
+  it("withholds a continuation the chain has no room left for", async () => {
+    const { socket, dispatched } = makeHarness(undefined, true);
+
+    // The other half of the same ordering: a synchronizing declaration under
+    // its own per-literal cap that would still carry the chain past the byte
+    // ceiling. Not counting it as held is only safe because the continuation
+    // is granted within what the chain has left, so the ceiling still binds —
+    // as a refusal the session survives rather than a teardown.
+    const payload = Buffer.alloc(8 * 1024 * 1024, 0x79);
+    const plusDeclaration = Buffer.from(` {${payload.length}+}\r\n`);
+
+    socket.emit("data", Buffer.from(`a1 APPEND INBOX {${payload.length}+}\r\n`));
+    await settle();
+    for (let i = 0; i < 3; i++) {
+      socket.emit("data", Buffer.concat([payload, plusDeclaration]));
+      await settle();
+    }
+
+    // 32 MiB held: under the ceiling, and every link under the APPEND cap, so
+    // nothing has been refused on its own size and the session is untouched.
+    expect(socket.writes).toEqual([]);
+    expect(socket.destroyed).toBe(false);
+
+    socket.emit(
+      "data",
+      Buffer.concat([payload, Buffer.from(` {${payload.length}}\r\n`)])
+    );
+    await settle();
+
+    expect(socket.writes.length).toBe(1);
+    // The cap named is what the chain has left, not the per-literal cap the
+    // declaration clears — an unbounded grant writes `+ go ahead` here and
+    // holds 40 MiB against a ceiling of 35 MiB + 64 KiB.
+    const refusal = /^a1 NO \[TOOBIG\] Literal exceeds (\d+) octets\r\n$/.exec(
+      socket.writes[0]
+    );
+    expect(refusal).not.toBeNull();
+    const namedCap = parseInt(refusal![1], 10);
+    expect(namedCap).toBeGreaterThan(0);
+    expect(namedCap).toBeLessThan(payload.length);
+    expect(socket.destroyed).toBe(false);
+    expect(dispatched).toEqual([]);
+  });
+
   it("ends the session on chained payloads that outgrow the byte ceiling", async () => {
     const { socket, dispatched } = makeHarness(undefined, true);
 

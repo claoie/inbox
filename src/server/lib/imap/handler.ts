@@ -323,9 +323,16 @@ export class ImapRequestHandler {
     const refuseOversizedLiteral = (
       commandText: string,
       declaredBytes: number,
-      isSynchronizing: boolean
+      isSynchronizing: boolean,
+      // What a chain has left before MAX_PENDING_COMMAND_BYTES. A granted
+      // continuation may not carry the pending command past it, so the
+      // per-literal cap is the smaller of the two.
+      chainBudget = Infinity
     ): LiteralOutcome => {
-      const cap = literalCapFor(commandText, session.isAuthenticated());
+      const cap = Math.min(
+        literalCapFor(commandText, session.isAuthenticated()),
+        chainBudget
+      );
       if (declaredBytes <= cap) return "accepted";
 
       // A LITERAL+ payload is already in flight, so the only recovery is to
@@ -385,43 +392,22 @@ export class ImapRequestHandler {
     };
 
     // Octets buffered that the drain has not agreed to receive. The one thing
-    // it has agreed to is an announced literal payload, which is excluded
-    // because it is not command text and is legitimately larger than any
-    // command; what remains is command text nothing has read yet.
-    //
-    // The unfinished LINE is the wrong quantity to measure here: a peer whose
-    // junk ends in CRLF every kilobyte keeps that number at zero forever while
-    // `buffer` grows by every octet it writes. What costs memory is octets held
-    // unread, terminated or not.
-    //
-    // `discardBytesRemaining` is deliberately NOT excluded, even though those
-    // octets are also spoken for. Every exclusion is a credit the peer can
-    // spend against this bound, and the discard counter is the peer's own
-    // over-cap declaration: it still reaches `MAX_PENDING_COMMAND_BYTES` before
-    // the teardown takes over, so excluding it would hand an unauthenticated
-    // `A1 LOGIN {N+}` tens of megabytes of credit against a 64 KiB bound.
-    // `literalBytesNeeded` is excluded because it is set only after
-    // `refuseOversizedLiteral` has held that declaration to the cap for its
-    // command.
-    // Excluding nothing costs the discard nothing either: those octets are
-    // being thrown away, so pausing while the drain catches up throttles a
-    // discard that has no reason to run any faster than the drain can consume.
+    // it has agreed to is an announced literal payload, whose declaration
+    // `refuseOversizedLiteral` has already held to the cap for its command;
+    // what remains is command text nothing has read yet — terminated or not,
+    // since a peer whose junk ends in CRLF every kilobyte keeps the unfinished
+    // line at zero while `buffer` grows by every octet it writes.
     const unconsumedCommandBytes = (): number => {
       const awaited = awaitingLiteral ? literalBytesNeeded : 0;
       return Math.max(0, buffer.length - awaited);
     };
 
     // Stop reading once more command text is held than any command can be, and
-    // read again once the drain has consumed it.
-    //
-    // Backpressure rather than a teardown, because at this point a flood and a
-    // client whose APPEND declaration is merely queued behind a parked drain
-    // are the same picture — unread octets — and only one of them is an
-    // attack. Pausing lets the second through: the socket resumes the moment
-    // the declaration is read and its payload becomes announced octets. The
-    // first stops growing the heap and is left as an idle socket, which
-    // SOCKET_TIMEOUT_MS already ends, and no conforming client ever sees a
-    // `BYE` it did not earn.
+    // read again once the drain has consumed it. Pausing rather than closing,
+    // because a flood and a client whose APPEND declaration is merely queued
+    // behind a parked drain are the same picture from here — the second
+    // resumes the moment its declaration is read, and the first is left as an
+    // idle socket for SOCKET_TIMEOUT_MS to end.
     //
     // `paused` is tracked here rather than read back off the socket so the
     // socket is only ever touched on a transition.
@@ -631,28 +617,33 @@ export class ImapRequestHandler {
                   : LITERAL_DECLARATION.exec(line);
               if (chained) {
                 const declaredBytes = parseInt(chained[1], 10);
+                const isSynchronizing = !chained[2];
                 // The payloads live on `pendingLiterals`; `pendingCommand` keeps
                 // only the `{N}` markers, some thirty octets per link. Measuring
                 // the command text therefore measures none of what is held, so
-                // the byte ceiling has to sum the payloads themselves — plus the
-                // declaration about to be accepted, whose octets are already in
-                // flight under LITERAL+.
+                // the byte ceiling has to sum the payloads themselves.
                 const heldBytes =
-                  pendingLiteralBytes +
-                  Buffer.byteLength(pendingCommand) +
-                  declaredBytes;
+                  pendingLiteralBytes + Buffer.byteLength(pendingCommand);
+                // A LITERAL+ declaration's octets are in flight already, so they
+                // are held whatever the session decides. A synchronizing one is
+                // held by nothing until the continuation is granted, and it is
+                // granted below only within what the chain has left — so a
+                // synchronizing chain over the ceiling is refused with the
+                // session up, the same answer an unchained one gets.
+                const pendingBytes =
+                  heldBytes + (isSynchronizing ? 0 : declaredBytes);
                 // A chain that has outgrown any real command is an accumulator
                 // attack, not a client the session can keep negotiating with, so
                 // it ends the session rather than answering `NO` and inviting the
                 // next one.
                 if (
                   pendingLiterals.length >= MAX_LITERALS_PER_COMMAND ||
-                  heldBytes > MAX_PENDING_COMMAND_BYTES
+                  pendingBytes > MAX_PENDING_COMMAND_BYTES
                 ) {
                   logger.info("IMAP literal chain over cap; closing session", {
                     component: "imap",
                     literals: pendingLiterals.length,
-                    pendingBytes: heldBytes,
+                    pendingBytes,
                     remote: `${socket.remoteAddress ?? "?"}:${socket.remotePort ?? 0}`
                   });
                   session.write("* BYE Command too long\r\n");
@@ -664,14 +655,15 @@ export class ImapRequestHandler {
                 const outcome = refuseOversizedLiteral(
                   pendingCommand,
                   declaredBytes,
-                  !chained[2]
+                  isSynchronizing,
+                  MAX_PENDING_COMMAND_BYTES - heldBytes
                 );
                 if (outcome === "closed") return;
                 if (outcome === "refused") continue;
                 pendingCommand += line.trimEnd();
                 literalBytesNeeded = declaredBytes;
                 awaitingLiteral = true;
-                if (!chained[2]) session.write("+ go ahead\r\n");
+                if (isSynchronizing) session.write("+ go ahead\r\n");
                 continue;
               }
               // If the command already parses without this line, the payload
@@ -801,15 +793,9 @@ export class ImapRequestHandler {
         return;
       }
 
-      // Growth happens here, so the bound belongs here. Inside the drain it
-      // would not be watching during the window that matters: `drainCommands`
-      // returns early while a drain is already in flight, and the in-flight
-      // drain is parked far more often than its own awaits suggest — it runs
-      // inside `session.runSerial`, so an IDLE delivery callback's DB
-      // round-trip parks it just as a deliberate authentication-failure delay
-      // or the pipeline throttle does, while this handler keeps concatenating.
-      // The bound needs no authentication to start, because neither does the
-      // flood.
+      // `drainCommands` runs inside `session.runSerial`, so an IDLE delivery
+      // callback's DB round-trip parks it for as long as that takes while this
+      // handler keeps concatenating. The bound goes where the buffer grows.
       applyBackpressure();
       // Fire-and-forget: `drainCommands` self-serializes via `draining`.
       // Errors inside are already logged; catch here just to prevent an
