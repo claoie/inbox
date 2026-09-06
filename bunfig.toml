@@ -8,16 +8,6 @@ preload = ["./scripts/test-preload.ts"]
 # Exclude test files themselves from the coverage report
 coverageSkipTestFiles = true
 
-# Exclude the two known bundles that tests write to a scratch dir and
-# dynamically import (app.test.ts → /tmp/inbox-http-app-<pid>/app.js,
-# env.test.ts → build/test-env-bundle-<pid>/env.js). Bun 1.4.1+ traces
-# coverage on dynamically-imported files and would count the multi-
-# thousand-line bundle against the src/ threshold. Patterns match on
-# segment name — a bare `**/tmp/**` or `**/build/**` would silently
-# exclude legitimate src/**/tmp/ or src/**/build/ paths a future author
-# might add.
-coveragePathIgnorePatterns = ["**/inbox-http-app-*/**", "**/test-env-bundle-*/**"]
-
 # Conservative aggregate thresholds — enforce CI fails on coverage regression.
 # Ratchet up as coverage improves.
 coverageThreshold = { lines = 0.50, functions = 0.28 }
