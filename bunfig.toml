@@ -19,6 +19,5 @@ coverageSkipTestFiles = true
 coveragePathIgnorePatterns = ["**/inbox-http-app-*/**", "**/test-env-bundle-*/**"]
 
 # Conservative aggregate thresholds — enforce CI fails on coverage regression.
-# Bun 1.4.0 checks these against the overall (weighted) coverage.
 # Ratchet up as coverage improves.
 coverageThreshold = { lines = 0.50, functions = 0.28 }
