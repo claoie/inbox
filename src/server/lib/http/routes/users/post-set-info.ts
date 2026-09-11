@@ -1,5 +1,5 @@
 import { MaskedUser } from "common";
-import { setUserInfo } from "server";
+import { getUser, setUserInfo, ADMIN_RO_USERNAME } from "server";
 import { Route } from "../route";
 
 export type SetInfoPostResponse = MaskedUser;
@@ -27,6 +27,17 @@ export const postSetInfoRoute = new Route<SetInfoPostResponse>(
     }
     if (token !== undefined && typeof token !== "string") {
       return { status: "failed", message: "token must be a string." };
+    }
+
+    // Refuse the reserved read-only identity BEFORE calling setUserInfo.
+    // setUserInfo unconditionally runs `usersTable.update(id, {password, ...})`
+    // for pre-existing users, so a post-call check would leave the row
+    // already mutated (bcrypt hash of an attacker-chosen password) even when
+    // session issuance gets refused. Same-shape response as bad credentials
+    // so an unauthenticated caller cannot distinguish.
+    const existing = await getUser({ email });
+    if (existing?.username === ADMIN_RO_USERNAME) {
+      return { status: "failed", message: "Invalid credentials." };
     }
 
     const user = await setUserInfo({ email, username, password, token: token as string | undefined });

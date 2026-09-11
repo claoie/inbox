@@ -1,5 +1,5 @@
 import { isUuid } from "common";
-import { getMailBody, deleteMail } from "server";
+import { getMailBody, deleteMail, refuseReadOnly } from "server";
 import { Route } from "../route";
 
 export type MailDeleteResponse = undefined;
@@ -9,6 +9,9 @@ export const deleteMailRoute = new Route<MailDeleteResponse>(
   "/:id",
   async (req) => {
     const user = req.session.user!;
+
+    const guard = refuseReadOnly(user, "Deleting mail");
+    if (!guard.ok) return { status: "failed", message: guard.message };
 
     const mailId = req.params.id;
 

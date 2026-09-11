@@ -1,4 +1,4 @@
-import { push } from "server";
+import { push, refuseReadOnly } from "server";
 import { Route } from "../route";
 
 export type SubscribeDeleteResponse = undefined;
@@ -10,7 +10,12 @@ export const deleteSubscribeRoute = new Route<SubscribeDeleteResponse>(
   "DELETE",
   "/subscribe/:id",
   async (req) => {
-    const { id: userId } = req.session.user!;
+    const user = req.session.user!;
+
+    const guard = refuseReadOnly(user, "Unsubscribing from push");
+    if (!guard.ok) return { status: "failed", message: guard.message };
+
+    const { id: userId } = user;
     const deleted = await push.deleteSubscriptionForUser(req.params.id, userId);
     if (deleted) return { status: "success" };
     return { status: "failed", message: "No subscription found" };

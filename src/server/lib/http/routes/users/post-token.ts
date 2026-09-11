@@ -6,7 +6,8 @@ import {
   getUser,
   isValidEmail,
   sendMail,
-  startTimer
+  startTimer,
+  ADMIN_RO_USERNAME
 } from "server";
 import { Route } from "../route";
 import { getClientIp, tokenLimiter } from "../../rate-limit";
@@ -37,6 +38,18 @@ export const postTokenRoute = new Route<TokenPostResponse>(
         status: "failed",
         message: "Signup failed because email is invalid."
       };
+    }
+
+    // Refuse the reserved read-only identity before createToken runs.
+    // createToken's existing-user branch issues
+    // `usersTable.update(readonly.id, {token, expiry})` AND schedules a
+    // hard-DELETE via startTimer, both of which would silently mutate the
+    // read-only row for an unauthenticated caller who guessed the address.
+    // Same-shape success response as a normal send so no probe signal.
+    const existing = await getUser({ email });
+    if (existing?.username === ADMIN_RO_USERNAME) {
+      tokenLimiter.recordFailure(ip);
+      return { status: "success" };
     }
 
     const [adminUser, createdUser] = await Promise.all([

@@ -6,6 +6,12 @@
  */
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import type { ApiResponse } from "../route";
+import {
+  ADMIN_RO_USERNAME,
+  refuseReadOnly,
+  remapReadOnlySession,
+} from "../../../read-only";
+import { SignedUser } from "common";
 
 // ── Shared mocks for "server" barrel ─────────────────────────────────────────
 
@@ -78,6 +84,12 @@ mock.module("server", () => ({
   createAuthenticationMail: mock(() => ({})),
   startTimer: mock(() => {}),
   version: "0.0.0",
+  // Read-only role attribution — real implementations so guards compare
+  // against the real constant. Duplicating the literal here would leave
+  // prod's guard comparing to a value this file could rename in isolation.
+  ADMIN_RO_USERNAME,
+  refuseReadOnly,
+  remapReadOnlySession,
 }));
 
 // Mock logger used directly in post-mark / post-spam-mark
@@ -1199,5 +1211,129 @@ describe("mail routes reject a malformed mail_id before it reaches Postgres (#74
     const result = await getBodyRoute.callback(makeReq({ params: { id } }), makeRes(), noopStream);
     expect(mockGetMailBody).toHaveBeenCalledWith("u1", id);
     expect((result as ApiResponse<unknown>).status).toBe("success");
+  });
+});
+
+// ── read-only guard sweep ─────────────────────────────────────────────────────
+
+describe("read-only guard on mutating mail + push routes", () => {
+  const makeReadOnlyUser = () =>
+    remapReadOnlySession(
+      new SignedUser({ id: "u1", username: "admin", email: "admin@localhost" }),
+      ADMIN_RO_USERNAME
+    );
+
+  const readOnlyReq = (overrides: Record<string, unknown> = {}) =>
+    ({
+      method: "POST",
+      session: { user: makeReadOnlyUser() },
+      params: {},
+      query: {},
+      body: {},
+      ...overrides,
+    }) as unknown as import("express").Request;
+
+  beforeEach(() => {
+    mockDeleteMail.mockClear();
+    mockMarkRead.mockClear();
+    mockMarkSaved.mockClear();
+    mockSendMail.mockClear();
+    mockMarkSpam.mockClear();
+    mockAddAllowlistEntry.mockClear();
+    mockRemoveAllowlistEntry.mockClear();
+  });
+
+  it("post-send refuses a read-only session BEFORE sendMail", async () => {
+    // Guard MUST fire before sendMail — otherwise a read-only session
+    // could burn one call against the outbound Mailgun quota per attempt.
+    const { postSendMailRoute } = await import("./post-send");
+    const req = readOnlyReq({
+      body: { to: "b@c.com", subject: "hi", html: "" },
+    });
+    const result = await postSendMailRoute.callback(req, makeRes(), noopStream);
+    expect((result as ApiResponse<unknown>).status).toBe("failed");
+    expect((result as ApiResponse<unknown>).message).toContain("read-only");
+    expect((result as ApiResponse<unknown>).message).toContain(ADMIN_RO_USERNAME);
+    expect(mockSendMail).not.toHaveBeenCalled();
+  });
+
+  it("post-mark refuses a read-only session BEFORE markRead / markSaved", async () => {
+    const { postMarkMailRoute } = await import("./post-mark");
+    const req = readOnlyReq({
+      body: { mail_id: MAIL_ID, read: true },
+    });
+    const result = await postMarkMailRoute.callback(req, makeRes(), noopStream);
+    expect((result as ApiResponse<unknown>).status).toBe("failed");
+    expect((result as ApiResponse<unknown>).message).toContain("read-only");
+    expect(mockMarkRead).not.toHaveBeenCalled();
+    expect(mockMarkSaved).not.toHaveBeenCalled();
+  });
+
+  it("post-spam-mark refuses a read-only session BEFORE markSpam", async () => {
+    const { postMarkSpamMailRoute } = await import("./post-spam-mark");
+    const req = readOnlyReq({
+      body: { mail_id: MAIL_ID, is_spam: true },
+    });
+    const result = await postMarkSpamMailRoute.callback(req, makeRes(), noopStream);
+    expect((result as ApiResponse<unknown>).status).toBe("failed");
+    expect((result as ApiResponse<unknown>).message).toContain("read-only");
+    expect(mockMarkSpam).not.toHaveBeenCalled();
+  });
+
+  it("delete refuses a read-only session BEFORE deleteMail", async () => {
+    const { deleteMailRoute } = await import("./delete");
+    const req = readOnlyReq({
+      method: "DELETE",
+      params: { id: MAIL_ID },
+    });
+    const result = await deleteMailRoute.callback(req, makeRes(), noopStream);
+    expect((result as ApiResponse<unknown>).status).toBe("failed");
+    expect((result as ApiResponse<unknown>).message).toContain("read-only");
+    expect(mockDeleteMail).not.toHaveBeenCalled();
+  });
+
+  it("post-allowlist refuses a read-only session BEFORE addAllowlistEntry", async () => {
+    const { postSpamAllowlistRoute } = await import("./post-allowlist");
+    const req = readOnlyReq({
+      body: { pattern: "user@example.com" },
+    });
+    const result = await postSpamAllowlistRoute.callback(req, makeRes(), noopStream);
+    expect((result as ApiResponse<unknown>).status).toBe("failed");
+    expect((result as ApiResponse<unknown>).message).toContain("read-only");
+    expect(mockAddAllowlistEntry).not.toHaveBeenCalled();
+  });
+
+  it("delete-allowlist refuses a read-only session BEFORE removeAllowlistEntry", async () => {
+    const { deleteSpamAllowlistRoute } = await import("./delete-allowlist");
+    const req = readOnlyReq({
+      method: "DELETE",
+      params: { pattern: "user@example.com" },
+    });
+    const result = await deleteSpamAllowlistRoute.callback(req, makeRes(), noopStream);
+    expect((result as ApiResponse<unknown>).status).toBe("failed");
+    expect((result as ApiResponse<unknown>).message).toContain("read-only");
+    expect(mockRemoveAllowlistEntry).not.toHaveBeenCalled();
+  });
+
+  it("post-send allows a non-read-only session (mutation-test the discriminator)", async () => {
+    // Mutation-test the discriminator — replacing isReadOnly with any
+    // value the code coerces to false must pass the guard. A wrong-sense
+    // check (`!isReadOnly` instead of `isReadOnly`) would trip here.
+    const { postSendMailRoute } = await import("./post-send");
+    const req = ({
+      method: "POST",
+      session: {
+        user: new SignedUser({
+          id: "u1",
+          username: "admin",
+          email: "admin@localhost",
+        }),
+      },
+      params: {},
+      query: {},
+      body: { to: "b@c.com", subject: "hi", html: "" },
+    }) as unknown as import("express").Request;
+    await postSendMailRoute.callback(req, makeRes(), noopStream);
+    expect(mockSendMail).toHaveBeenCalledTimes(1);
   });
 });

@@ -20,6 +20,12 @@ const mockLogger = {
   error: mock(() => {}),
 };
 
+// Import the real constant so the barrel-mock value stays in lock-step with
+// the source of truth — duplicating the literal would let prod's smtp.ts
+// compare against a new value while this mock still yielded the old one, and
+// the guard would go silently inert in this file while tests stayed green.
+import { ADMIN_RO_USERNAME } from "./read-only";
+
 // Only mock what smtp.ts actually imports from "server": getUser, saveMailHandler, sendMail, logger.
 // Do NOT add getDomain/getUserDomain/etc here — Bun's mock.module is global and persists across
 // test files in the same run. Unused mocks leak into subsequent files (e.g. mails/util.test.ts),
@@ -29,6 +35,10 @@ mock.module("server", () => ({
   saveMailHandler: mockSaveMailHandler,
   sendMail: mockSendMail,
   logger: mockLogger,
+  // Required, not optional — onMailFrom checks against this constant, and
+  // omitting it here would leave the comparison against `undefined` and the
+  // guard inert in this file while still passing every test.
+  ADMIN_RO_USERNAME,
 }));
 
 const mockSimpleParser = mock(() =>
@@ -64,7 +74,7 @@ const mockResetAuthFailures = spyOn(authRateLimit, "resetAuthFailures").mockRetu
 // `DISCORD_ALARM_WEBHOOK` is unset (the early return in alarm.ts:15).
 
 // Import the actual SMTP handlers after mocks are set up
-import { onAuth, onData, resolveOutgoingSender, splitEnvelopeRecipients } from "./smtp";
+import { onAuth, onData, onMailFrom, resolveOutgoingSender, splitEnvelopeRecipients } from "./smtp";
 
 // Revert the auth-rate-limit spies after this file so the real implementation is
 // restored for any test file that runs later (e.g. auth-rate-limit.test.ts).
@@ -237,6 +247,80 @@ describe("onAuth handler", () => {
 
     expect(mockRecordAuthFailure).toHaveBeenCalledWith("1.1.1.1");
     expect(mockResetAuthFailures).not.toHaveBeenCalled();
+  });
+
+  it("authenticates the read-only credential (mutation-refusal is at MAIL FROM)", async () => {
+    // SMTP has only mutating gates, but authenticating admin-ro is
+    // permitted so the session shape stays symmetric with HTTP/IMAP —
+    // the refusal lives at MAIL FROM (below).
+    const hashedPw = await bcrypt.hash("readonlypass", 10);
+    const session = { remoteAddress: "10.0.0.1" } as SMTPServerSession;
+    const auth = {
+      username: ADMIN_RO_USERNAME,
+      password: "readonlypass",
+    } as SMTPServerAuthentication;
+    mockGetUser.mockResolvedValue({
+      password: hashedPw,
+      getSigned: () => ({ username: ADMIN_RO_USERNAME }),
+    });
+
+    const result = await new Promise<{ user?: string }>((resolve) => {
+      onAuth!(auth, session, (_err, data) => resolve(data || {}));
+    });
+
+    // Session.user carries the original credential so downstream gates
+    // (onMailFrom) can distinguish it. Audit line names the original
+    // credential.
+    expect(result.user).toBe(ADMIN_RO_USERNAME);
+    expect(mockResetAuthFailures).toHaveBeenCalledTimes(1);
+    const readOnlyLog = mockLogger.info.mock.calls.find(
+      (call) => (call[0] as string) === "SMTP AUTH success (read-only)"
+    );
+    expect(readOnlyLog).toBeDefined();
+    expect((readOnlyLog?.[1] as Record<string, unknown>).authenticatedAs).toBe(
+      ADMIN_RO_USERNAME
+    );
+  });
+});
+
+describe("onMailFrom handler", () => {
+  it("refuses MAIL FROM with 550 for the read-only session", async () => {
+    // SMTP submission is a mutating action (writes a sent row, hands the
+    // message to Mailgun). The read-only session's single mutating gate is
+    // MAIL FROM; refuse there rather than intercepting at every command.
+    const session = {
+      user: ADMIN_RO_USERNAME,
+      remoteAddress: "10.0.0.1",
+    } as unknown as SMTPServerSession;
+    const address = { address: "sender@test.com" } as never;
+
+    const err = await new Promise<Error | null>((resolve) => {
+      onMailFrom!(address, session, (e) => resolve(e || null));
+    });
+
+    expect(err).toBeInstanceOf(Error);
+    expect(err!.message).toBe("READ-ONLY user cannot send");
+    expect(
+      (err as Error & { responseCode?: number }).responseCode
+    ).toBe(550);
+  });
+
+  it("passes MAIL FROM for a non-read-only session", async () => {
+    // Mutation-test the guard's discriminator: replacing the read-only
+    // username with any other username must not trip it. `every(p)` on a
+    // list of one user would hide a `!==` typo; asserting the pass path
+    // with a distinct username is the discriminator.
+    const session = {
+      user: "alice",
+      remoteAddress: "10.0.0.2",
+    } as unknown as SMTPServerSession;
+    const address = { address: "alice@test.com" } as never;
+
+    const err = await new Promise<Error | null>((resolve) => {
+      onMailFrom!(address, session, (e) => resolve(e || null));
+    });
+
+    expect(err).toBeNull();
   });
 });
 

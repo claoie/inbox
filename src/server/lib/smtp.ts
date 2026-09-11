@@ -2,12 +2,18 @@ import bcrypt from "bcryptjs";
 import { readFileSync } from "fs";
 import {
   SMTPServer,
+  SMTPServerAddress,
   SMTPServerOptions,
   SMTPServerSession,
   SMTPServerDataStream
 } from "smtp-server";
 import { simpleParser, AddressObject, EmailAddress } from "mailparser";
-import { saveMailHandler, sendMail, getUser } from "server";
+import {
+  saveMailHandler,
+  sendMail,
+  getUser,
+  ADMIN_RO_USERNAME
+} from "server";
 import { IncomingMail, MailDataToSend } from "common";
 import { isAuthRateLimited, recordAuthFailure, resetAuthFailures } from "./auth-rate-limit";
 import { getUserDomain } from "./util";
@@ -90,7 +96,36 @@ export const onAuth: SMTPServerOptions["onAuth"] = async (auth, session, cb) => 
   }
 
   resetAuthFailures(ip);
+  // Audit line names the original credential. Read-only sessions pass this
+  // gate and are refused later at the single mutating gate this surface
+  // has, `onMailFrom` (below) — matching HTTP and IMAP where the read-only
+  // credential logs in but is refused at every write.
+  if (username === ADMIN_RO_USERNAME) {
+    logger.info("SMTP AUTH success (read-only)", { authenticatedAs: username, ip });
+  }
   cb(null, { user: username });
+};
+
+/**
+ * Refuses MAIL FROM for a session authenticated with the read-only credential
+ * — SMTP submission is a mutating action (writes a sent-mail row and hands the
+ * message to Mailgun for non-local recipients). 550 keeps this in the "policy
+ * denied" family rather than the "server error" family that would train
+ * clients to retry.
+ */
+export const onMailFrom: SMTPServerOptions["onMailFrom"] = (
+  _address: SMTPServerAddress,
+  session: SMTPServerSession,
+  cb: (err?: Error | null) => void
+) => {
+  if (session.user === ADMIN_RO_USERNAME) {
+    const err = new Error("READ-ONLY user cannot send") as Error & {
+      responseCode?: number;
+    };
+    err.responseCode = 550;
+    return cb(err);
+  }
+  return cb();
 };
 
 export const onData = (
@@ -323,7 +358,13 @@ const SMTP_MAX_CLIENTS = 100;
 export const initializeSmtp = async () => {
   const servers: SMTPServer[] = [];
 
-  const options: SMTPServerOptions = { authOptional: true, onAuth, onData, maxClients: SMTP_MAX_CLIENTS };
+  const options: SMTPServerOptions = {
+    authOptional: true,
+    onAuth,
+    onMailFrom,
+    onData,
+    maxClients: SMTP_MAX_CLIENTS
+  };
 
   const credentials = getTlsCredentials();
   const isSslAvailable = credentials.state === "available";

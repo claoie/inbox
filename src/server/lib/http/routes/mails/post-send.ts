@@ -1,5 +1,10 @@
 import { MailDataToSend, MailDataToSendType } from "common";
-import { sendMail, MailValidationError, MailSendingError } from "server";
+import {
+  sendMail,
+  MailValidationError,
+  MailSendingError,
+  refuseReadOnly,
+} from "server";
 import { Route } from "../route";
 
 export type SendMailPostResponse =
@@ -13,6 +18,9 @@ export const postSendMailRoute = new Route<SendMailPostResponse>(
   "/send",
   async (req) => {
     const user = req.session.user!;
+
+    const guard = refuseReadOnly(user, "Sending mail");
+    if (!guard.ok) return { status: "failed", message: guard.message };
 
     const body: SendMailPostBody = req.body;
     const attachments = req.files?.attachments;

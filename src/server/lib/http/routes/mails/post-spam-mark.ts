@@ -1,5 +1,5 @@
 import { isUuid } from "common";
-import { markSpam } from "server";
+import { markSpam, refuseReadOnly } from "server";
 import { getMailById } from "server/lib/postgres/repositories/mails";
 import { trainWithEmail } from "server/lib/spam/classifier";
 import { Route } from "../route";
@@ -26,6 +26,9 @@ export const postMarkSpamMailRoute = new Route<SpamMarkPostResponse>(
   "/spam/mark",
   async (req) => {
     const user = req.session.user!;
+
+    const guard = refuseReadOnly(user, "Marking spam");
+    if (!guard.ok) return { status: "failed", message: guard.message };
 
     const body: SpamMarkPostBody = req.body;
     const { mail_id, is_spam } = body;

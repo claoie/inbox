@@ -12,6 +12,7 @@ import {
 } from "./migration";
 import { searchVectorDdl, searchVectorReindexSql } from "./search-vector";
 import { logger } from "../logger";
+import { ADMIN_RO_USERNAME } from "../read-only";
 import { withTimeout } from "../util";
 import {
   Table,
@@ -289,4 +290,41 @@ export const initializeAdminUser = async (): Promise<void> => {
         "  Set EMAIL_DOMAIN=yourdomain.com in your .env file to see incoming emails."
     );
   }
+};
+
+/**
+ * Bootstraps the read-only administrative user (`ADMIN_RO_USERNAME`) when
+ * `ADMIN_RO_PASSWORD` is set. Idempotent — reuses the existing row if the
+ * username is already present so a redeploy keeps the same user_id.
+ *
+ * Opt-in by design: an unset `ADMIN_RO_PASSWORD` skips seeding without
+ * throwing, so a deployment that does not want the role does not have to
+ * declare the env var at all. Once seeded, authenticating with these
+ * credentials produces a session whose effective identity is admin and whose
+ * `isReadOnly` flag refuses every mutating surface.
+ */
+export const initializeAdminReadOnlyUser = async (): Promise<void> => {
+  const { ADMIN_RO_PASSWORD } = process.env;
+
+  if (!ADMIN_RO_PASSWORD) {
+    logger.warn(
+      "[CONFIG] ADMIN_RO_PASSWORD is not set — skipping read-only admin user seed. " +
+        "Set it to enable the read-only role."
+    );
+    return;
+  }
+
+  const existing = await searchUser({ username: ADMIN_RO_USERNAME });
+  const result = await writeUser({
+    user_id: existing?.user_id,
+    username: ADMIN_RO_USERNAME,
+    password: ADMIN_RO_PASSWORD,
+    // Same domain rationale as admin (see initializeAdminUser above) — a
+    // consistent `@EMAIL_DOMAIN` local part keeps the account lookup happy
+    // across dev / sandbox / prod.
+    email: `${ADMIN_RO_USERNAME}@${process.env.EMAIL_DOMAIN || "localhost"}`,
+  });
+  if (!result?._id) throw new Error("Failed to create read-only admin user");
+
+  logger.info("Successfully initialized read-only admin user.");
 };

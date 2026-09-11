@@ -7,8 +7,12 @@
 
 import bcrypt from "bcryptjs";
 import { Socket } from "net";
-import { getUser } from "server";
-import { logger } from "server";
+import {
+  getUser,
+  logger,
+  ADMIN_RO_USERNAME,
+  remapReadOnlySession,
+} from "server";
 import { isAuthRateLimited, recordAuthFailure, resetAuthFailures } from "../auth-rate-limit";
 import { Store } from "./store";
 import { closeSocket } from "./close-socket";
@@ -20,7 +24,35 @@ const DUMMY_HASH =
 export interface AuthResult {
   store: Store;
   authenticated: true;
+  /** True when the caller authenticated with the read-only credential. */
+  isReadOnly: boolean;
+  /** Original username the caller sent, before any session-scope remap. */
+  authenticatedAs: string;
 }
+
+/**
+ * Resolves the effective SignedUser to attach to the store. For the reserved
+ * read-only credential, this is admin's SignedUser with `isReadOnly` /
+ * `authenticatedAs` set; for every other credential, it is the caller's own
+ * signed user unchanged. Returns null when the read-only credential
+ * authenticated but no admin row exists — treated by callers as a failed
+ * authentication so the session is never issued without an effective identity.
+ */
+const resolveSessionUser = async (
+  signedUser: ReturnType<NonNullable<Awaited<ReturnType<typeof getUser>>>["getSigned"]>
+) => {
+  if (!signedUser) return null;
+  if (signedUser.username !== ADMIN_RO_USERNAME) {
+    return { user: signedUser, isReadOnly: false };
+  }
+  const admin = await getUser({ username: "admin" });
+  const signedAdmin = admin?.getSigned();
+  if (!signedAdmin) return null;
+  return {
+    user: remapReadOnlySession(signedAdmin, ADMIN_RO_USERNAME),
+    isReadOnly: true,
+  };
+};
 
 /**
  * Handle AUTHENTICATE PLAIN mechanism.
@@ -87,23 +119,44 @@ export async function handleAuthenticate(
       return null;
     }
 
+    const resolved = await resolveSessionUser(signedUser);
+    if (!resolved) {
+      const limited = await recordAuthFailure(ip);
+      if (limited) {
+        write(`${tag} NO [AUTHENTICATIONFAILED] Too many failed attempts\r\n`);
+        closeSocket(socket);
+        return null;
+      }
+      write(`${tag} NO [AUTHENTICATIONFAILED] Invalid credentials.\r\n`);
+      return null;
+    }
+
     resetAuthFailures(ip);
     // Auth-audit line — never behind the per-command threshold gate in
     // handler.ts (a fast bcrypt round on strong hardware would drop the
     // per-command "IMAP command completed" line to DEBUG). Auth events
     // need a durable INFO surface at the same level as CREATE / RENAME /
-    // DELETE from mailbox-ops.ts.
+    // DELETE from mailbox-ops.ts. `authenticatedAs` names the original
+    // credential (unchanged by the read-only remap) so a compromised
+    // read-only credential does not read in the log as admin.
     logger.info("IMAP AUTHENTICATE success", {
       component: "imap",
       tag,
-      username: signedUser.username,
+      authenticatedAs: username,
+      effectiveUsername: resolved.user.username,
+      isReadOnly: resolved.isReadOnly,
       remote: `${ip}:${socket.remotePort ?? 0}`,
       mechanism: "PLAIN",
     });
     write(
       `${tag} OK [CAPABILITY ${getCapabilities()}] AUTHENTICATE completed\r\n`
     );
-    return { store: new Store(signedUser), authenticated: true };
+    return {
+      store: new Store(resolved.user),
+      authenticated: true,
+      isReadOnly: resolved.isReadOnly,
+      authenticatedAs: username,
+    };
   } catch (error) {
     logger.error("AUTHENTICATE error", { component: "imap" }, error);
     write(`${tag} BAD AUTHENTICATE failed\r\n`);
@@ -160,6 +213,18 @@ export async function handleLogin(
     return null;
   }
 
+  const resolved = await resolveSessionUser(signedUser);
+  if (!resolved) {
+    const limited = await recordAuthFailure(ip);
+    if (limited) {
+      write(`${tag} NO [AUTHENTICATIONFAILED] Too many failed attempts\r\n`);
+      closeSocket(socket);
+      return null;
+    }
+    write(`${tag} NO [AUTHENTICATIONFAILED] Invalid credentials.\r\n`);
+    return null;
+  }
+
   resetAuthFailures(ip);
   // Auth-audit line — same rationale as the AUTHENTICATE success log
   // above. Threshold gate in handler.ts is scoped to per-command
@@ -167,9 +232,16 @@ export async function handleLogin(
   logger.info("IMAP LOGIN success", {
     component: "imap",
     tag,
-    username: signedUser.username,
+    authenticatedAs: cleanUsername,
+    effectiveUsername: resolved.user.username,
+    isReadOnly: resolved.isReadOnly,
     remote: `${ip}:${socket.remotePort ?? 0}`,
   });
   write(`${tag} OK [CAPABILITY ${getCapabilities()}] LOGIN completed\r\n`);
-  return { store: new Store(signedUser), authenticated: true };
+  return {
+    store: new Store(resolved.user),
+    authenticated: true,
+    isReadOnly: resolved.isReadOnly,
+    authenticatedAs: cleanUsername,
+  };
 }

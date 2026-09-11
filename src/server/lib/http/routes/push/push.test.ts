@@ -1,5 +1,11 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import type { ApiResponse } from "../route";
+import { SignedUser } from "common";
+import {
+  ADMIN_RO_USERNAME,
+  refuseReadOnly,
+  remapReadOnlySession,
+} from "../../../read-only";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -48,6 +54,9 @@ mock.module("server", () => ({
   mailsTable: { queryOne: mock(async () => null) },
   SpamAllowlistModel: class {},
   logger: { error: mock(() => {}), info: mock(() => {}), warn: mock(() => {}) },
+  ADMIN_RO_USERNAME,
+  refuseReadOnly,
+  remapReadOnlySession,
 }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -202,5 +211,57 @@ describe("deleteSubscribeRoute", () => {
     const result = await deleteSubscribeRoute.callback(req, makeRes(), noopStream);
     expect((result as ApiResponse<unknown>).status).toBe("failed");
     expect((result as ApiResponse<unknown>).message).toMatch(/No subscription found/i);
+  });
+});
+
+// ── read-only guard sweep ─────────────────────────────────────────────────────
+
+describe("read-only guard on push routes", () => {
+  const readOnlyReq = (overrides: Record<string, unknown> = {}) =>
+    ({
+      session: {
+        user: remapReadOnlySession(
+          new SignedUser({
+            id: "u1",
+            username: "admin",
+            email: "admin@localhost",
+          }),
+          ADMIN_RO_USERNAME
+        ),
+      },
+      params: {},
+      body: {},
+      ...overrides,
+    }) as unknown as import("express").Request;
+
+  beforeEach(() => {
+    mockStoreSubscription.mockClear();
+    mockDeleteSubscriptionForUser.mockClear();
+  });
+
+  it("post-subscribe refuses a read-only session BEFORE storeSubscription", async () => {
+    const { postSubscribeRoute } = await import("./post-subscribe");
+    const req = readOnlyReq({
+      body: {
+        subscription: {
+          endpoint: "https://updates.push.services.mozilla.com/wpush/v2/x",
+          keys: { p256dh: "a".repeat(87), auth: "b".repeat(22) },
+        },
+      },
+    });
+    const result = await postSubscribeRoute.callback(req, makeRes(), noopStream);
+    expect((result as ApiResponse<unknown>).status).toBe("failed");
+    expect((result as ApiResponse<unknown>).message).toContain("read-only");
+    expect((result as ApiResponse<unknown>).message).toContain(ADMIN_RO_USERNAME);
+    expect(mockStoreSubscription).not.toHaveBeenCalled();
+  });
+
+  it("delete-subscribe refuses a read-only session BEFORE deleteSubscriptionForUser", async () => {
+    const { deleteSubscribeRoute } = await import("./delete-subscribe");
+    const req = readOnlyReq({ params: { id: "sub1" } });
+    const result = await deleteSubscribeRoute.callback(req, makeRes(), noopStream);
+    expect((result as ApiResponse<unknown>).status).toBe("failed");
+    expect((result as ApiResponse<unknown>).message).toContain("read-only");
+    expect(mockDeleteSubscriptionForUser).not.toHaveBeenCalled();
   });
 });

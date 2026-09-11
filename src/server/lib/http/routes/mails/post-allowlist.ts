@@ -1,4 +1,4 @@
-import { addAllowlistEntry } from "server";
+import { addAllowlistEntry, refuseReadOnly } from "server";
 import { Route } from "../route";
 import { AllowlistEntryResponse } from "./get-allowlist";
 
@@ -17,6 +17,9 @@ export const postSpamAllowlistRoute = new Route<AllowlistAddResponse>(
   "/spam-allowlist",
   async (req) => {
     const user = req.session.user!;
+
+    const guard = refuseReadOnly(user, "Adding to the spam allowlist");
+    if (!guard.ok) return { status: "failed", message: guard.message };
 
     const body: AllowlistAddBody = req.body;
     const { pattern } = body;

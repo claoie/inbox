@@ -1,5 +1,5 @@
 import { PushSubscription } from "web-push";
-import { push } from "server";
+import { push, refuseReadOnly } from "server";
 import { Route } from "../route";
 import { validatePushSubscription } from "../../../push-validation";
 
@@ -14,6 +14,9 @@ export const postSubscribeRoute = new Route<SubscribePostResponse>(
   "/subscribe",
   async (req) => {
     const user = req.session.user!;
+
+    const guard = refuseReadOnly(user, "Subscribing to push");
+    if (!guard.ok) return { status: "failed", message: guard.message };
 
     const { id: userId } = user;
     const body = req.body;

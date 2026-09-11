@@ -66,6 +66,16 @@ export class ImapSession {
   // legitimate interactive rate while still bounding a runaway client.
   private throttler: Throttler = new Throttler(100, 1000);
   private authenticated: boolean = false;
+  /**
+   * True when the authenticated caller used a read-only credential. Set once
+   * at auth time from the returned {@link import("./auth").AuthResult}. Every
+   * state-mutating IMAP command (STORE / COPY / MOVE / APPEND / EXPUNGE, and
+   * mailbox CREATE / DELETE / RENAME / SUBSCRIBE / UNSUBSCRIBE) refuses with
+   * `NO [READ-ONLY]` when this is set; the flag is scoped to this one IMAP
+   * connection.
+   */
+  private isReadOnlyUser: boolean = false;
+  private authenticatedAs: string | null = null;
   // RFC 4551 CONDSTORE: once the client sends `ENABLE CONDSTORE`, MODSEQ is
   // emitted on every subsequent FETCH response for the life of the session.
   private condstoreEnabled: boolean = false;
@@ -313,6 +323,8 @@ export class ImapSession {
     if (result) {
       this.store = result.store;
       this.authenticated = result.authenticated;
+      this.isReadOnlyUser = result.isReadOnly;
+      this.authenticatedAs = result.authenticatedAs;
     }
   };
 
@@ -327,7 +339,26 @@ export class ImapSession {
     if (result) {
       this.store = result.store;
       this.authenticated = result.authenticated;
+      this.isReadOnlyUser = result.isReadOnly;
+      this.authenticatedAs = result.authenticatedAs;
     }
+  };
+
+  /**
+   * Guard for state-mutating IMAP commands. Returns `true` if the caller
+   * should proceed; returns `false` after writing `NO [READ-ONLY]` for a
+   * read-only session. `command` is the IMAP verb, echoed so log-based
+   * triage can pin what was rejected. The refusal identifies the caller by
+   * `authenticatedAs` (the original credential), never by the effective
+   * user's username.
+   */
+  private allowMutation = (tag: string, command: string): boolean => {
+    if (!this.isReadOnlyUser) return true;
+    const attributedTo = this.authenticatedAs || "read-only";
+    this.write(
+      `${tag} NO [READ-ONLY] ${command} not permitted for read-only user (${attributedTo}).\r\n`
+    );
+    return false;
   };
 
   // ---------------------------------------------------------------------------
@@ -338,6 +369,7 @@ export class ImapSession {
     if (!this.authenticated || !this.store) {
       return this.write(`${tag} NO Not authenticated.\r\n`);
     }
+    if (!this.allowMutation(tag, "CREATE")) return;
     return createMailbox(tag, mailbox, this.store, this.write);
   };
 
@@ -345,6 +377,7 @@ export class ImapSession {
     if (!this.authenticated || !this.store) {
       return this.write(`${tag} NO Not authenticated.\r\n`);
     }
+    if (!this.allowMutation(tag, "DELETE")) return;
     return deleteMailbox(tag, mailbox, this.store, this.write);
   };
 
@@ -352,6 +385,7 @@ export class ImapSession {
     if (!this.authenticated || !this.store) {
       return this.write(`${tag} NO Not authenticated.\r\n`);
     }
+    if (!this.allowMutation(tag, "RENAME")) return;
     return renameMailbox(tag, oldName, newName, this.store, this.write);
   };
 
@@ -359,6 +393,7 @@ export class ImapSession {
     if (!this.authenticated || !this.store) {
       return this.write(`${tag} NO Not authenticated.\r\n`);
     }
+    if (!this.allowMutation(tag, "SUBSCRIBE")) return;
     return subscribeMailbox(tag, mailbox, this.store, this.write);
   };
 
@@ -366,6 +401,7 @@ export class ImapSession {
     if (!this.authenticated || !this.store) {
       return this.write(`${tag} NO Not authenticated.\r\n`);
     }
+    if (!this.allowMutation(tag, "UNSUBSCRIBE")) return;
     return unsubscribeMailbox(tag, mailbox, this.store, this.write);
   };
 
@@ -462,7 +498,8 @@ export class ImapSession {
       this.write,
       this.writeChunked,
       this.writeStream,
-      this.condstoreEnabled
+      this.condstoreEnabled,
+      this.isReadOnlyUser
     );
   };
 
@@ -499,6 +536,7 @@ export class ImapSession {
     if (!this.selectedMailbox) {
       return this.write(`${tag} BAD No mailbox selected\r\n`);
     }
+    if (!this.allowMutation(tag, isUidCommand ? "UID STORE" : "STORE")) return;
     // RFC 7162 §3.1.3: like CHANGEDSINCE on FETCH, an UNCHANGEDSINCE modifier
     // implicitly enables CONDSTORE — "the server starts including the MODSEQ
     // FETCH response data items in all subsequent unsolicited FETCH responses"
@@ -527,6 +565,7 @@ export class ImapSession {
     if (!this.authenticated || !this.store || !this.selectedMailbox) {
       return this.write(`${tag} NO Not authenticated or no mailbox selected.\r\n`);
     }
+    if (!this.allowMutation(tag, isUidCommand ? "UID COPY" : "COPY")) return;
     return copyMessageOp(
       tag,
       copyRequest,
@@ -546,6 +585,7 @@ export class ImapSession {
     if (!this.authenticated || !this.store || !this.selectedMailbox) {
       return this.write(`${tag} NO Not authenticated or no mailbox selected.\r\n`);
     }
+    if (!this.allowMutation(tag, isUidCommand ? "UID MOVE" : "MOVE")) return;
     return moveMessageOp(
       tag,
       moveRequest,
@@ -562,6 +602,7 @@ export class ImapSession {
     if (!this.authenticated || !this.store) {
       return this.write(`${tag} NO Not authenticated.\r\n`);
     }
+    if (!this.allowMutation(tag, "APPEND")) return;
     return appendMessageOp(
       tag,
       appendRequest,
@@ -589,6 +630,7 @@ export class ImapSession {
     if (!this.selectedMailbox) {
       return this.write(`${tag} BAD No mailbox selected\r\n`);
     }
+    if (!this.allowMutation(tag, "EXPUNGE")) return;
     return expungeOp(
       tag,
       this.store,

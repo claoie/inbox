@@ -51,6 +51,20 @@ export class SignedUser extends Model<SignedUser> implements SignedUserType {
   declare username: string;
   declare token?: string;
   declare expiry?: string;
+  /**
+   * Session-scoped read-only role attribution. When true the request was
+   * authenticated as a read-only account whose session_id was remapped to
+   * the effective (data-owning) user's id, so every read path keys off the
+   * same `id` as the owner while every mutating surface refuses the write.
+   */
+  declare isReadOnly?: boolean;
+  /**
+   * Original username the caller authenticated as, before any session-scope
+   * remap. Distinct from `username` (which after remap names the effective
+   * data owner) so audit-log lines and refusal messages can attribute the
+   * action to the credential that produced it.
+   */
+  declare authenticatedAs?: string;
 
   constructor(init?: Partial<SignedUser>) {
     super(init);
