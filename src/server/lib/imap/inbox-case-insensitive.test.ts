@@ -89,6 +89,7 @@ const runSelect = async (name: string) => {
     "A1",
     name,
     false,
+    "SELECT",
     fakeStore(),
     (data: string) => {
       lines.push(data);

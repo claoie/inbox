@@ -10,6 +10,7 @@ import { Socket } from "net";
 import {
   getUser,
   logger,
+  ADMIN_USERNAME,
   ADMIN_RO_USERNAME,
   remapReadOnlySession,
 } from "server";
@@ -45,7 +46,7 @@ const resolveSessionUser = async (
   if (signedUser.username !== ADMIN_RO_USERNAME) {
     return { user: signedUser, isReadOnly: false };
   }
-  const admin = await getUser({ username: "admin" });
+  const admin = await getUser({ username: ADMIN_USERNAME });
   const signedAdmin = admin?.getSigned();
   if (!signedAdmin) return null;
   return {

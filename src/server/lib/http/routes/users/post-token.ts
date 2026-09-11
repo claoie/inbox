@@ -7,7 +7,7 @@ import {
   isValidEmail,
   sendMail,
   startTimer,
-  ADMIN_RO_USERNAME
+  isReservedUsername
 } from "server";
 import { Route } from "../route";
 import { getClientIp, tokenLimiter } from "../../rate-limit";
@@ -40,14 +40,14 @@ export const postTokenRoute = new Route<TokenPostResponse>(
       };
     }
 
-    // Refuse the reserved read-only identity before createToken runs.
-    // createToken's existing-user branch issues
-    // `usersTable.update(readonly.id, {token, expiry})` AND schedules a
-    // hard-DELETE via startTimer, both of which would silently mutate the
-    // read-only row for an unauthenticated caller who guessed the address.
+    // Refuse the boot-seeded accounts before createToken runs. This route is
+    // unauthenticated, and createToken's existing-user branch writes
+    // `{token, expiry}` onto the matched row AND schedules a hard-DELETE via
+    // startTimer — so without the gate an outside caller mints a live reset
+    // token for admin from nothing but the address.
     // Same-shape success response as a normal send so no probe signal.
     const existing = await getUser({ email });
-    if (existing?.username === ADMIN_RO_USERNAME) {
+    if (isReservedUsername(existing?.username)) {
       tokenLimiter.recordFailure(ip);
       return { status: "success" };
     }

@@ -82,6 +82,7 @@ const runSelect = async (tag: string) => {
     tag,
     "Archive",
     false,
+    "SELECT",
     fakeStore(),
     (data: string) => {
       lines.push(data);

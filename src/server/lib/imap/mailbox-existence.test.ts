@@ -30,6 +30,7 @@ const runSelect = async (name: string, readOnly: boolean) => {
     "A1",
     name,
     readOnly,
+    readOnly ? "EXAMINE" : "SELECT",
     fakeStore(REAL_MAILBOXES),
     (data: string) => {
       lines.push(data);

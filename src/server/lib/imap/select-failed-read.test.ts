@@ -37,6 +37,7 @@ const runSelect = async (
     "A1",
     "INBOX",
     false,
+    "SELECT",
     fakeStore(getAllUids),
     (data: string) => {
       lines.push(data);

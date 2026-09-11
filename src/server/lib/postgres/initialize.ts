@@ -307,7 +307,7 @@ export const initializeAdminReadOnlyUser = async (): Promise<void> => {
   const { ADMIN_RO_PASSWORD } = process.env;
 
   if (!ADMIN_RO_PASSWORD) {
-    logger.warn(
+    logger.debug(
       "[CONFIG] ADMIN_RO_PASSWORD is not set — skipping read-only admin user seed. " +
         "Set it to enable the read-only role."
     );

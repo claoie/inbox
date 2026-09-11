@@ -1,7 +1,9 @@
 import { describe, it, expect } from "bun:test";
 import { SignedUser } from "common";
 import {
+  ADMIN_USERNAME,
   ADMIN_RO_USERNAME,
+  isReservedUsername,
   refuseReadOnly,
   remapReadOnlySession,
 } from "./read-only";
@@ -12,6 +14,22 @@ describe("ADMIN_RO_USERNAME", () => {
     // against. A rename would flip every isReadOnly check to
     // `undefined === "admin-ro"` at the callers that duplicated it.
     expect(ADMIN_RO_USERNAME).toBe("admin-ro");
+  });
+});
+
+describe("isReservedUsername", () => {
+  it("matches both boot-seeded accounts", () => {
+    expect(isReservedUsername(ADMIN_USERNAME)).toBe(true);
+    expect(isReservedUsername(ADMIN_RO_USERNAME)).toBe(true);
+  });
+
+  it("does not match ordinary usernames or a missing one", () => {
+    // Mutation-test the discriminator: a set that swallowed every username
+    // would lock every real signup out of the email reset flow.
+    expect(isReservedUsername("alice")).toBe(false);
+    expect(isReservedUsername("admin2")).toBe(false);
+    expect(isReservedUsername("")).toBe(false);
+    expect(isReservedUsername(undefined)).toBe(false);
   });
 });
 
@@ -83,6 +101,27 @@ describe("remapReadOnlySession", () => {
     const ro = remapReadOnlySession(admin, ADMIN_RO_USERNAME);
     expect(ro.isReadOnly).toBe(true);
     expect(ro.authenticatedAs).toBe(ADMIN_RO_USERNAME);
+  });
+
+  it("drops the effective identity's token and expiry", () => {
+    // Both login routes return the session object to the client verbatim and
+    // `mask()` retains token/expiry, so carrying them across the read-only
+    // boundary would hand admin's live password-reset credential to a
+    // read-only caller.
+    const withReset = new SignedUser({
+      id: "admin-id",
+      username: "admin",
+      email: "admin@localhost",
+      token: "live-reset-token",
+      expiry: "2999-01-01T00:00:00.000Z",
+    });
+    const ro = remapReadOnlySession(withReset, ADMIN_RO_USERNAME);
+    expect(ro.token).toBeUndefined();
+    expect(ro.expiry).toBeUndefined();
+    expect(JSON.stringify(ro)).not.toContain("live-reset-token");
+    // The effective identity itself is untouched — admin's own session must
+    // still carry its reset state.
+    expect(withReset.token).toBe("live-reset-token");
   });
 
   it("does not mutate the caller's admin SignedUser", () => {

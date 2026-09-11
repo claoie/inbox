@@ -575,6 +575,7 @@ export async function selectMailbox(
   tag: string,
   name: string,
   readOnly: boolean,
+  command: "SELECT" | "EXAMINE",
   store: Store,
   write: (data: string) => boolean | undefined,
   seqState: SequenceState,
@@ -691,8 +692,10 @@ export async function selectMailbox(
     write(
       `* OK [PERMANENTFLAGS (\\Seen \\Flagged \\Deleted \\Draft \\Answered \\*)] Flags permitted\r\n`
     );
+    // RFC 3501 6.3.1: the response code reports whether the client may modify
+    // the mailbox, which is not the same question as which command it issued —
+    // a read-only user's SELECT is answered `[READ-ONLY] SELECT completed`.
     const mode = readOnly ? "READ-ONLY" : "READ-WRITE";
-    const command = readOnly ? "EXAMINE" : "SELECT";
     write(`${tag} OK [${mode}] ${command} completed\r\n`);
   } catch (error) {
     // RFC 3501 §6.3.1: after a failed SELECT no mailbox is selected. The

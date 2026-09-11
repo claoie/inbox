@@ -102,17 +102,23 @@ async function authAs(isReadOnly: boolean, authenticatedAs = "admin") {
     authenticated: boolean;
     isReadOnlyUser: boolean;
     authenticatedAs: string | null;
-    store: {
-      getUser: () => { id: string; username: string; email: string };
-    };
+    store: Record<string, unknown>;
   };
   s.authenticated = true;
+  // Enough of a Store to carry a SELECT end to end; the mutating-command
+  // cases below only reach `getUser`.
   s.store = {
     getUser: () => ({
       id: "admin-id",
       username: "admin",
       email: "admin@localhost",
     }),
+    mailboxExists: async () => true,
+    countMessages: async () => ({ total: 2, unread: 0 }),
+    getUidNext: async () => 10,
+    getAllUids: async () => [8, 9],
+    getFirstUnseenUid: async () => null,
+    getHighestModseq: async () => 5,
   };
   s.isReadOnlyUser = isReadOnly;
   s.authenticatedAs = authenticatedAs;
@@ -264,6 +270,37 @@ describe("read-only IMAP user — guard refuses mutating commands", () => {
       expect(joined).toContain(ADMIN_RO_USERNAME);
     });
   }
+});
+
+describe("read-only IMAP user — SELECT announces the enforced mode", () => {
+  it("answers a read-only user's SELECT with [READ-ONLY] SELECT completed", async () => {
+    // RFC 3501 6.3.1: the announcement has to match what the mutating ops
+    // enforce. Announcing READ-WRITE here makes clients queue flag writes
+    // that then come back NO [READ-ONLY] in a retry loop.
+    const { session, writes } = await authAs(true, ADMIN_RO_USERNAME);
+    await session.selectMailbox("A1", "INBOX");
+    expect(writes.join("")).toContain("A1 OK [READ-ONLY] SELECT completed\r\n");
+    // The same flag the STORE / EXPUNGE / COPY refusals read.
+    expect(
+      (session as unknown as { mailboxReadOnly: boolean }).mailboxReadOnly
+    ).toBe(true);
+  });
+
+  it("still answers an ordinary user's SELECT with [READ-WRITE]", async () => {
+    // Mutation-test the discriminator: an unconditional READ-ONLY
+    // announcement would pass the case above and break every real session.
+    const { session, writes } = await authAs(false, "admin");
+    await session.selectMailbox("A1", "INBOX");
+    expect(writes.join("")).toContain("A1 OK [READ-WRITE] SELECT completed\r\n");
+  });
+
+  it("keeps EXAMINE naming EXAMINE for a read-only user", async () => {
+    // The response code and the echoed command answer different questions;
+    // folding them back together would rename this SELECT.
+    const { session, writes } = await authAs(true, ADMIN_RO_USERNAME);
+    await session.examineMailbox("A1", "INBOX");
+    expect(writes.join("")).toContain("A1 OK [READ-ONLY] EXAMINE completed\r\n");
+  });
 });
 
 describe("read-only IMAP user — admin session unaffected", () => {

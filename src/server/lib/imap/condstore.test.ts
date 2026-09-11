@@ -178,6 +178,7 @@ const runSelect = async (readOnly: boolean, highest: number) => {
     "A1",
     "INBOX",
     readOnly,
+    readOnly ? "EXAMINE" : "SELECT",
     fakeSelectStore(highest),
     (data: string) => {
       lines.push(data);

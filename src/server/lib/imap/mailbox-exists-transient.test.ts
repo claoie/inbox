@@ -94,6 +94,7 @@ describe("SELECT writes 'NO SELECT failed' (not 'does not exist') on transient m
       "A1",
       "Archive",
       false,
+      "SELECT",
       store,
       (data: string) => {
         lines.push(data);
@@ -119,6 +120,7 @@ describe("SELECT writes 'NO SELECT failed' (not 'does not exist') on transient m
       "A1",
       "GhostBox",
       false,
+      "SELECT",
       store,
       (data: string) => {
         lines.push(data);

@@ -3,6 +3,7 @@ import { MaskedUser } from "common";
 import {
   getUser,
   logger,
+  ADMIN_USERNAME,
   ADMIN_RO_USERNAME,
   remapReadOnlySession,
 } from "server";
@@ -63,7 +64,7 @@ export const postLoginRoute = new Route<LoginPostResponse>(
     // to bad-credentials rather than issuing an unremapped session.
     let sessionUser = signedUser;
     if (signedUser.username === ADMIN_RO_USERNAME) {
-      const admin = await getUser({ username: "admin" });
+      const admin = await getUser({ username: ADMIN_USERNAME });
       const signedAdmin = admin?.getSigned();
       if (!signedAdmin) {
         loginLimiter.recordFailure(ip);

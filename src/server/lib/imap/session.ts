@@ -443,16 +443,20 @@ export class ImapSession {
   selectMailbox = async (
     tag: string,
     name: string,
-    readOnly: boolean = false
+    isExamine: boolean = false
   ) => {
     if (!this.authenticated || !this.store) {
       return this.write(`${tag} NO Not authenticated.\r\n`);
     }
-    this.mailboxReadOnly = readOnly;
+    // A read-only user cannot modify any mailbox, so its SELECT must announce
+    // `[READ-ONLY]` too — otherwise clients that read the untagged response
+    // queue flag writes that every mutating op then refuses.
+    this.mailboxReadOnly = isExamine || this.isReadOnlyUser;
     return selectMailboxOp(
       tag,
       name,
-      readOnly,
+      this.mailboxReadOnly,
+      isExamine ? "EXAMINE" : "SELECT",
       this.store,
       this.write,
       this.seqState,
