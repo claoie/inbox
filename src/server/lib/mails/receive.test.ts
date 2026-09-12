@@ -3,10 +3,10 @@ import { describe, it, expect, afterAll, beforeAll } from "bun:test";
 import type { IncomingMail, IncomingMailAddress } from "common";
 import {
   validateIncomingMail,
-  addressToUsername,
   convertMailAddress,
   convertAddressValue,
 } from "./receive";
+import { addressToUsername } from "../util";
 
 const makeMail = (envelopeTo: { address: string }[]): IncomingMail =>
   ({ envelopeTo } as unknown as IncomingMail);

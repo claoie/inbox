@@ -67,9 +67,8 @@ export async function fetchMessagesTyped(
   writeStream: WriteStream,
   condstoreEnabled: boolean = false,
   // Suppresses the auto-\Seen side-effect on FETCH BODY[] / RFC822 /
-  // RFC822.TEXT for a read-only session. A read-only credential must not
-  // mutate any user-scoped state, even one that today rides implicitly on a
-  // read-shaped command.
+  // RFC822.TEXT for a read-only session, so reading a message never changes
+  // the flag another client is looking at.
   suppressReadMark: boolean = false
 ): Promise<void> {
   const isFlagsOnly = fetchRequest.dataItems.every(

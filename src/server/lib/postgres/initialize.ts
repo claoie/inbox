@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { pool } from "./client";
 import { writeUser, searchUser } from "./repositories";
 import { buildCreateTable, buildCreateIndex, buildIndexName } from "./database";
@@ -293,24 +293,23 @@ export const initializeAdminUser = async (): Promise<void> => {
 };
 
 /**
- * Bootstraps the read-only administrative user (`ADMIN_RO_USERNAME`) when
- * `ADMIN_RO_PASSWORD` is set. Idempotent — reuses the existing row if the
- * username is already present so a redeploy keeps the same user_id.
+ * Reconciles the read-only administrative user (`ADMIN_RO_USERNAME`) with
+ * `ADMIN_RO_PASSWORD` on every boot, in both directions:
  *
- * Opt-in by design: an unset `ADMIN_RO_PASSWORD` skips seeding without
- * throwing, so a deployment that does not want the role does not have to
- * declare the env var at all. Once seeded, authenticating with these
- * credentials produces a session whose effective identity is admin and whose
- * `isReadOnly` flag refuses every mutating surface.
+ * - set — seeds or re-seeds the account. Idempotent: reuses the existing row if
+ *   the username is already present, so a redeploy keeps the same user_id.
+ *   Authenticating with these credentials produces a session whose effective
+ *   identity is admin and whose `isReadOnly` flag refuses every mutating
+ *   surface.
+ * - unset — revokes any account a previous boot seeded, so removing the env var
+ *   and redeploying is a complete revocation rather than a no-op that leaves a
+ *   working credential behind.
  */
 export const initializeAdminReadOnlyUser = async (): Promise<void> => {
   const { ADMIN_RO_PASSWORD } = process.env;
 
   if (!ADMIN_RO_PASSWORD) {
-    logger.debug(
-      "[CONFIG] ADMIN_RO_PASSWORD is not set — skipping read-only admin user seed. " +
-        "Set it to enable the read-only role."
-    );
+    await revokeAdminReadOnlyUser();
     return;
   }
 
@@ -327,4 +326,35 @@ export const initializeAdminReadOnlyUser = async (): Promise<void> => {
   if (!result?._id) throw new Error("Failed to create read-only admin user");
 
   logger.info("Successfully initialized read-only admin user.");
+};
+
+/**
+ * Revokes a previously seeded read-only admin account. The row is kept so a
+ * later re-enable reuses its user_id; what is destroyed is the credential —
+ * the stored password is replaced with a secret that exists nowhere, which no
+ * login can present. Retaining the column as a valid hash (rather than
+ * clearing it) keeps the three authentication surfaces on their normal
+ * wrong-password path, since `bcrypt.compare` rejects a null hash outright.
+ */
+const revokeAdminReadOnlyUser = async (): Promise<void> => {
+  const existing = await searchUser({ username: ADMIN_RO_USERNAME });
+  if (!existing) {
+    logger.debug(
+      "[CONFIG] ADMIN_RO_PASSWORD is not set — skipping read-only admin user seed. " +
+        "Set it to enable the read-only role."
+    );
+    return;
+  }
+
+  const revoked = await writeUser({
+    user_id: existing.user_id,
+    username: ADMIN_RO_USERNAME,
+    password: randomBytes(32).toString("hex"),
+    email: existing.email ?? undefined,
+  });
+  if (!revoked?._id) throw new Error("Failed to revoke read-only admin user");
+
+  logger.info(
+    "ADMIN_RO_PASSWORD is not set — revoked the previously seeded read-only admin user."
+  );
 };

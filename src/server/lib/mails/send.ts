@@ -30,10 +30,21 @@ export class MailSendingError extends Error {
 
 export type UploadedFileDynamicArray = UploadedFile | UploadedFile[];
 
+export type SendMailOptions = {
+  /**
+   * Whether the delivered mail is also written to the sender's Sent mailbox.
+   * Defaults to true; pass `false` for transactional mail whose body carries a
+   * live bearer credential, so the credential is never retrievable by anyone
+   * who can read the sending identity's mail.
+   */
+  persistToSentMailbox?: boolean;
+};
+
 export const sendMail = async (
   user: SignedUser,
   mailToSend: MailDataToSend,
-  files?: UploadedFileDynamicArray
+  files?: UploadedFileDynamicArray,
+  options?: SendMailOptions
 ) => {
   // Validate mail data before sending
   const validation = validateMailData(mailToSend);
@@ -41,9 +52,11 @@ export const sendMail = async (
     throw new MailValidationError(validation.error!);
   }
 
+  const { persistToSentMailbox = true } = options ?? {};
   const { id: userId, username } = user;
   try {
     const response = await sendMailgunMail(username, mailToSend, files);
+    if (!persistToSentMailbox) return response;
     const messageId = response?.id || randomUUID();
     let sentMail;
     try {

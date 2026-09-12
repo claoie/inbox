@@ -1,4 +1,5 @@
 import { SignedUser } from "common";
+import { addressToUsername } from "./util";
 
 /**
  * Reserved username for the read-only administrative role. A row with this
@@ -27,6 +28,17 @@ export const ADMIN_USERNAME = "admin";
  */
 export const isReservedUsername = (username: string | undefined): boolean =>
   username === ADMIN_USERNAME || username === ADMIN_RO_USERNAME;
+
+/**
+ * True for an address this server delivers into admin's own mailbox — the bare
+ * served domain and `admin.<domain>`. The `/token` -> `/set-info` email flow
+ * must refuse these: the mail comes back through the receive webhook and is
+ * stored under admin's user_id, where a read-only session reads it by design,
+ * so the token it carries would be a write credential handed to a read-only
+ * caller.
+ */
+export const deliversToAdminMailbox = (email: string): boolean =>
+  addressToUsername(email) === ADMIN_USERNAME;
 
 /**
  * Discriminated result returned by {@link refuseReadOnly}. A caller propagates

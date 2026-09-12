@@ -28,6 +28,7 @@ const mockGetSignedUser = mock((_user: unknown) => null as unknown);
 const mockCreateAuthenticationMail = mock(() => ({ to: "test@example.com", subject: "auth" }));
 const mockSendMail = mock(async () => {});
 const mockStartTimer = mock((_id: string) => {});
+const mockDeliversToAdminMailbox = mock((_email: string) => false);
 const mockLogger = {
   debug: mock(() => {}),
   info: mock(() => {}),
@@ -52,6 +53,13 @@ mock.module("server", () => ({
   ADMIN_USERNAME,
   ADMIN_RO_USERNAME,
   isReservedUsername,
+  // Stubbed rather than real, unlike its neighbours: the real predicate
+  // reaches `addressToUsername` through `./util`, which any earlier file's
+  // `mock.module("server", ...)` replaces graph-wide — so a real one here
+  // would answer with that file's stub values. What this file tests is the
+  // route's wiring in both directions; the predicate's own truth table is
+  // covered against the real implementation in read-only.test.ts.
+  deliversToAdminMailbox: mockDeliversToAdminMailbox,
   remapReadOnlySession,
   refuseReadOnly,
 }));
@@ -558,6 +566,7 @@ describe("postTokenRoute", () => {
     mockGetUser.mockClear();
     mockSendMail.mockClear();
     mockStartTimer.mockClear();
+    mockDeliversToAdminMailbox.mockClear();
   });
 
   it("returns failed when email is invalid", async () => {
@@ -611,6 +620,42 @@ describe("postTokenRoute", () => {
     expect(mockSendMail).not.toHaveBeenCalled();
     expect(recordFailureSpy).toHaveBeenCalledWith("127.0.0.1");
     recordFailureSpy.mockRestore();
+  });
+
+  it("refuses an address delivered into admin's mailbox BEFORE createToken", async () => {
+    // Such an address routes to admin on the receive path, so the magic link
+    // would come back stored under admin's user_id — where a read-only session
+    // reads it and can then claim the account the token belongs to.
+    const { postTokenRoute } = await import("./post-token");
+    mockCreateToken.mockClear();
+    mockStartTimer.mockClear();
+    mockSendMail.mockClear();
+    // No existing row: the address does not have to belong to a user, since
+    // createToken's other branch mints one for any valid address.
+    mockGetUser.mockResolvedValueOnce(null);
+    mockDeliversToAdminMailbox.mockReturnValueOnce(true);
+    const req = makeReq({ body: { email: "victim@served-domain.test" } });
+    const result = await postTokenRoute.callback(req, makeRes(), noopStream);
+    expect((result as ApiResponse<unknown>).status).toBe("success");
+    expect(mockDeliversToAdminMailbox).toHaveBeenCalledWith(
+      "victim@served-domain.test"
+    );
+    expect(mockCreateToken).not.toHaveBeenCalled();
+    expect(mockStartTimer).not.toHaveBeenCalled();
+    expect(mockSendMail).not.toHaveBeenCalled();
+  });
+
+  it("sends the magic link with no Sent record under the sending identity", async () => {
+    // The body carries a live token and the sender is admin, whose mailbox
+    // the read-only role reads — so the Sent copy must never be written.
+    const { postTokenRoute } = await import("./post-token");
+    mockGetUser.mockResolvedValueOnce(null);
+    mockGetUser.mockResolvedValueOnce({ id: "admin1", username: "admin" });
+    mockGetSignedUser.mockReturnValueOnce({ id: "admin1", username: "admin" });
+    const req = makeReq({ body: { email: "user@example.com" } });
+    await postTokenRoute.callback(req, makeRes(), noopStream);
+    expect(mockSendMail).toHaveBeenCalledTimes(1);
+    expect(mockSendMail.mock.calls[0][3]).toEqual({ persistToSentMailbox: false });
   });
 
   it("refuses the admin address BEFORE createToken (no reset token minted)", async () => {

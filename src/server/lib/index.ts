@@ -29,7 +29,6 @@ export {
   saveMail,
   convertMail,
   validateIncomingMail,
-  addressToUsername,
   saveBuffer,
   getAccounts,
   searchAccounts,

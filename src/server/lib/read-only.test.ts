@@ -3,10 +3,12 @@ import { SignedUser } from "common";
 import {
   ADMIN_USERNAME,
   ADMIN_RO_USERNAME,
+  deliversToAdminMailbox,
   isReservedUsername,
   refuseReadOnly,
   remapReadOnlySession,
 } from "./read-only";
+import { getDomain } from "./util";
 
 describe("ADMIN_RO_USERNAME", () => {
   it("names the reserved read-only credential", () => {
@@ -14,6 +16,29 @@ describe("ADMIN_RO_USERNAME", () => {
     // against. A rename would flip every isReadOnly check to
     // `undefined === "admin-ro"` at the callers that duplicated it.
     expect(ADMIN_RO_USERNAME).toBe("admin-ro");
+  });
+});
+
+describe("deliversToAdminMailbox", () => {
+  const domain = getDomain();
+
+  it("matches the addresses whose mail is stored under admin's user_id", () => {
+    // Both spellings route to admin on the receive path, so a magic link sent
+    // to either is retrievable by a read-only session.
+    expect(deliversToAdminMailbox(`victim@${domain}`)).toBe(true);
+    expect(deliversToAdminMailbox(`victim@${ADMIN_USERNAME}.${domain}`)).toBe(true);
+  });
+
+  it("does not match another user's subdomain or an outside address", () => {
+    // Mutation-test the discriminator: a predicate that answered true for
+    // every address would refuse every signup on the server.
+    expect(deliversToAdminMailbox(`bob@bob.${domain}`)).toBe(false);
+    expect(deliversToAdminMailbox("victim@example.com")).toBe(false);
+    expect(deliversToAdminMailbox(`victim@not-${domain}.example.com`)).toBe(false);
+  });
+
+  it("keys off the address domain, not its local part", () => {
+    expect(deliversToAdminMailbox(`${ADMIN_USERNAME}@example.com`)).toBe(false);
   });
 });
 

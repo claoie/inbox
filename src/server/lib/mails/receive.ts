@@ -21,7 +21,7 @@ import {
   getDomainUidNext as pgGetDomainUidNext,
   getAccountUidNext as pgGetAccountUidNext,
 } from "../postgres/repositories/mails";
-import { getUser, getText, getDomain } from "server";
+import { getUser, getText, getDomain, addressToUsername } from "server";
 import {
   ATTACHMENT_FOLDER,
   getAttachmentFilePath,
@@ -388,12 +388,4 @@ export const validateIncomingMail = (
 
   if (isAddressCorrect) return data as IncomingMail;
   return undefined;
-};
-
-export const addressToUsername = (address: string) => {
-  const domain = getDomain();
-  const parsedAddress = address.split("@");
-  const domainInAddress = parsedAddress[parsedAddress.length - 1];
-  const subDomain = domainInAddress.split(`.${domain}`)[0]?.toLowerCase();
-  return subDomain === domain ? "admin" : subDomain;
 };

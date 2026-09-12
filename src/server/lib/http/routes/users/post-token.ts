@@ -7,7 +7,8 @@ import {
   isValidEmail,
   sendMail,
   startTimer,
-  isReservedUsername
+  isReservedUsername,
+  deliversToAdminMailbox
 } from "server";
 import { Route } from "../route";
 import { getClientIp, tokenLimiter } from "../../rate-limit";
@@ -52,6 +53,14 @@ export const postTokenRoute = new Route<TokenPostResponse>(
       return { status: "success" };
     }
 
+    // Same for an address delivered into admin's own mailbox: the sent link
+    // comes back through the receive webhook under admin's user_id, which the
+    // read-only role reads by design.
+    if (deliversToAdminMailbox(email)) {
+      tokenLimiter.recordFailure(ip);
+      return { status: "success" };
+    }
+
     const [adminUser, createdUser] = await Promise.all([
       getUser({ username: "admin" }),
       createToken(email)
@@ -68,7 +77,14 @@ export const postTokenRoute = new Route<TokenPostResponse>(
       username
     );
 
-    await sendMail(signedAdminUser, new MailDataToSend(authenticationEamil));
+    // No Sent record: the body carries a live signup token, and the sending
+    // identity is admin — whose mailbox the read-only role reads by design.
+    await sendMail(
+      signedAdminUser,
+      new MailDataToSend(authenticationEamil),
+      undefined,
+      { persistToSentMailbox: false }
+    );
 
     startTimer(id);
 
