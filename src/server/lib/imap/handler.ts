@@ -8,8 +8,37 @@ import { ImapRequest } from "./types";
 import { parseCommand } from "./parsers";
 import { clip, imapTrace, redactCredentials } from "./trace";
 import { getBodyBudgetWaitMs, runInBodyBudgetContext } from "./body-budget";
+import { acquireCommandBudget, releaseCommandBudget } from "./command-budget";
 import { SOCKET_TIMEOUT_MS } from "./idle-manager";
 import { logger } from "server";
+
+// Command types whose processing (DB reads, mailbox/message-list
+// materialization, response formatting) has a non-trivial memory
+// footprint, and that the historical OOM/memory-pressure traffic shapes
+// (multiple concurrent connections each running SELECT sweeps, bulk
+// FETCH, or rapid STATUS) actually consist of. Gated through the global
+// command budget in `handleRequest` so the aggregate number of these
+// running at once across ALL sockets is bounded, rather than growing
+// with however many sockets a client happens to open concurrently.
+// Protocol/handshake commands (NOOP, IDLE, LOGIN, CAPABILITY, LOGOUT,
+// CHECK, ...) stay ungated: they are cheap, and IDLE in particular must
+// never queue behind a busy budget since a client relies on it for
+// timely push notifications, not throughput.
+const BUDGETED_COMMAND_TYPES = new Set<ImapRequest["type"]>([
+  "LIST",
+  "LSUB",
+  "SELECT",
+  "EXAMINE",
+  "STATUS",
+  "FETCH",
+  "SEARCH",
+  "STORE",
+  "COPY",
+  "MOVE",
+  "EXPUNGE",
+  "APPEND",
+  "UID",
+]);
 
 // Per-command diagnostic log thresholds. A command is "interesting"
 // (logged at INFO) if ANY of these thresholds is exceeded. Otherwise
@@ -837,6 +866,16 @@ export class ImapRequestHandler {
       return;
     }
 
+    // Acquired BEFORE the per-command diagnostic timer starts, so a
+    // command queued behind the budget doesn't attribute the OTHER
+    // in-flight commands' RSS growth (and its own queueing latency) to
+    // itself — `waitedForCommandBudgetMs` below carries that separately.
+    const budgeted = BUDGETED_COMMAND_TYPES.has(request.type);
+    const waitedForCommandBudgetMs = budgeted
+      ? Math.round(await acquireCommandBudget())
+      : 0;
+
+    try {
     // Per-command diagnostic: RSS delta + bytes emitted to the client + wall
     // duration, so a memory spike can be attributed to a specific command
     // rather than only to a coarse metrics-poll window. Sampled from
@@ -864,7 +903,7 @@ export class ImapRequestHandler {
     // THIS command's totals, not a racing sibling command on another
     // socket. Reads via `getBodyBudgetWaitMs()` in the finally below.
     // See `body-budget.ts`.
-    return runInBodyBudgetContext(async () => {
+    await runInBodyBudgetContext(async () => {
     try {
       switch (request.type) {
         case "CAPABILITY":
@@ -1106,6 +1145,7 @@ export class ImapRequestHandler {
         responseBytes,
         durationMs,
         waitedForBodyBudgetMs,
+        waitedForCommandBudgetMs,
       };
       if (isInteresting) {
         logger.info("IMAP command completed", payload);
@@ -1114,6 +1154,9 @@ export class ImapRequestHandler {
       }
     }
     });
+    } finally {
+      if (budgeted) releaseCommandBudget();
+    }
   }
 
   /**
