@@ -40,6 +40,7 @@ import {
 } from "./types";
 import { withBodyBudgetStream } from "./body-budget";
 import { withStreamMutex } from "./stream-mutex";
+import { withYieldedCommandBudget } from "./command-budget-hold";
 import { updateRfc822Size } from "../postgres/repositories/mails/core";
 // Only the stream form of the budget is used now: every body-bearing
 // section streams, and the sections that still materialize (header-like)
@@ -401,10 +402,12 @@ function streamPartialSubset(
     return { type: "simple", content: `${sectionKey} NIL` };
   }
   const emittedLength = Math.min(requestedLength, addressableBytes - start);
-  const stream = withStreamMutex(streamKey, () =>
-    withBodyBudgetStream(async function* () {
-      yield* streamPartialFromSegments(segments, start, emittedLength);
-    })
+  const stream = withYieldedCommandBudget(() =>
+    withStreamMutex(streamKey, () =>
+      withBodyBudgetStream(async function* () {
+        yield* streamPartialFromSegments(segments, start, emittedLength);
+      })
+    )
   );
   // Origin-octet header form is `BODY[<section>]<start>` per §7.4.2
   // msg-att-static — no length echo; the `{N}` literal carries the count.
@@ -461,10 +464,12 @@ export async function buildBodyResponsePart(
         requestedLength,
         partialAddressableBytes - start
       );
-      const partialStream = withStreamMutex(streamKey, () =>
-        withBodyBudgetStream(async function* () {
-          yield* streamPartialFromSegments(segments, start, emittedLength);
-        })
+      const partialStream = withYieldedCommandBudget(() =>
+        withStreamMutex(streamKey, () =>
+          withBodyBudgetStream(async function* () {
+            yield* streamPartialFromSegments(segments, start, emittedLength);
+          })
+        )
       );
       // The origin-octet header form is `BODY[<section>]<start>` per
       // §7.4.2 msg-att-static — no length echo; the `{N}` literal
@@ -476,11 +481,13 @@ export async function buildBodyResponsePart(
         length: emittedLength,
       };
     }
-    const stream = withStreamMutex(streamKey, () =>
-      withBodyBudgetStream(async function* () {
-        yield* streamFromSegments(segments);
-        yield Buffer.from("\r\n", "utf8");
-      })
+    const stream = withYieldedCommandBudget(() =>
+      withStreamMutex(streamKey, () =>
+        withBodyBudgetStream(async function* () {
+          yield* streamFromSegments(segments);
+          yield Buffer.from("\r\n", "utf8");
+        })
+      )
     );
     return {
       type: "stream",
@@ -520,11 +527,13 @@ export async function buildBodyResponsePart(
         streamKey
       );
     }
-    const stream = withStreamMutex(streamKey, () =>
-      withBodyBudgetStream(async function* () {
-        yield* streamBodyFromSegments(segments);
-        yield Buffer.from("\r\n", "utf8");
-      })
+    const stream = withYieldedCommandBudget(() =>
+      withStreamMutex(streamKey, () =>
+        withBodyBudgetStream(async function* () {
+          yield* streamBodyFromSegments(segments);
+          yield Buffer.from("\r\n", "utf8");
+        })
+      )
     );
     return {
       type: "stream",
@@ -569,11 +578,13 @@ export async function buildBodyResponsePart(
           streamKey
         );
       }
-      const stream = withStreamMutex(streamKey, () =>
-        withBodyBudgetStream(async function* () {
-          yield* streamPartBodyFromSegments(segments, partPath);
-          yield Buffer.from("\r\n", "utf8");
-        })
+      const stream = withYieldedCommandBudget(() =>
+        withStreamMutex(streamKey, () =>
+          withBodyBudgetStream(async function* () {
+            yield* streamPartBodyFromSegments(segments, partPath);
+            yield Buffer.from("\r\n", "utf8");
+          })
+        )
       );
       return {
         type: "stream",

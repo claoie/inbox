@@ -9,7 +9,7 @@
  * mutation run against the semaphore in isolation.
  */
 
-import { describe, it, expect, beforeEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { EventEmitter } from "events";
 import "../push";
 import { ImapRequestHandler } from "./handler";
@@ -60,6 +60,13 @@ const nextTick = () => new Promise<void>((r) => setImmediate(r));
 
 describe("command budget wiring through handleRequest", () => {
   beforeEach(() => {
+    _resetCommandBudget();
+  });
+
+  // A failed assertion mid-test would otherwise skip the manual release
+  // loop below it and leave the process-global singleton saturated for
+  // every later test file in the same process.
+  afterEach(() => {
     _resetCommandBudget();
   });
 

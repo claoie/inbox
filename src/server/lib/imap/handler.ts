@@ -9,6 +9,7 @@ import { parseCommand } from "./parsers";
 import { clip, imapTrace, redactCredentials } from "./trace";
 import { getBodyBudgetWaitMs, runInBodyBudgetContext } from "./body-budget";
 import { acquireCommandBudget, releaseCommandBudget } from "./command-budget";
+import { runInCommandBudgetContext } from "./command-budget-hold";
 import { SOCKET_TIMEOUT_MS } from "./idle-manager";
 import { logger } from "server";
 
@@ -935,7 +936,12 @@ export class ImapRequestHandler {
     // THIS command's totals, not a racing sibling command on another
     // socket. Reads via `getBodyBudgetWaitMs()` in the finally below.
     // See `body-budget.ts`.
-    await runInBodyBudgetContext(async () => {
+    //
+    // Also binds whether THIS command holds a command-budget slot, so a
+    // deeper body-budget/stream-mutex wait can temporarily give it up via
+    // `withYieldedCommandBudget` (see `command-budget-hold.ts`) instead of
+    // pinning it for the whole nested wait.
+    await runInCommandBudgetContext(budgeted, () => runInBodyBudgetContext(async () => {
     try {
       switch (request.type) {
         case "CAPABILITY":
@@ -1186,7 +1192,7 @@ export class ImapRequestHandler {
         logger.debug("IMAP command completed", payload);
       }
     }
-    });
+    }));
     } finally {
       if (budgeted) releaseCommandBudget();
     }
