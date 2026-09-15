@@ -10,11 +10,19 @@
  */
 import { describe, it, expect, mock, beforeEach, afterAll } from "bun:test";
 import { MailDataToSend, SignedUser } from "common";
+import * as mailgunModule from "./mailgun";
 
 const REAL_SERVER = (globalThis as Record<string, unknown>).__REAL_SERVER as Record<
   string,
   unknown
 >;
+
+// Snapshot before mocking: the imported namespace object is live, and Bun
+// mutates it in place when the mock installs, so restoring from it hands the
+// stub back and leaves the module mocked for every later file in the run.
+// Which file runs first is filesystem enumeration order, and that differs
+// between the CI and CD commands.
+const REAL_MAILGUN = { ...mailgunModule };
 
 const mockSaveMail = mock(async () => undefined);
 const mockSendMailgunMail = mock(async () => ({ id: "mailgun-message-id" }));
@@ -29,14 +37,18 @@ mock.module("server", () => ({
   getAccountUidNext: async () => 1,
 }));
 
-mock.module("./mailgun", () => ({ sendMailgunMail: mockSendMailgunMail }));
+mock.module("./mailgun", () => ({
+  ...REAL_MAILGUN,
+  sendMailgunMail: mockSendMailgunMail,
+}));
 
 const { sendMail } = await import("./send");
 
-// `mock.module` is process-global with no unmock API — hand the real barrel
+// `mock.module` is process-global with no unmock API — hand the real modules
 // back so the next file in the same run does not inherit these stubs.
 afterAll(() => {
   if (REAL_SERVER) mock.module("server", () => REAL_SERVER);
+  mock.module("./mailgun", () => REAL_MAILGUN);
 });
 
 const USER = new SignedUser({
