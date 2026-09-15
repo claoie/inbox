@@ -18,21 +18,28 @@ const written: WrittenUser[] = [];
 let existingRow: unknown = null;
 
 const mockSearchUser = mock(async () => existingRow);
+const mockDeleteSessionsAuthenticatedAs = mock(async (_authenticatedAs: string) => 2);
 const mockWriteUser = mock(async (user: WrittenUser) => {
   written.push(user);
   return { _id: user.user_id ?? "generated-id" };
 });
 
+// Snapshot before mocking: `realRepositories` is the live namespace object and
+// Bun mutates it in place when the mock installs, so restoring from it hands
+// back the stubs and leaves the barrel mocked for every later file.
+const REAL_REPOSITORIES = { ...realRepositories };
+
 mock.module("./repositories", () => ({
-  ...realRepositories,
+  ...REAL_REPOSITORIES,
   searchUser: mockSearchUser,
   writeUser: mockWriteUser,
+  deleteSessionsAuthenticatedAs: mockDeleteSessionsAuthenticatedAs,
 }));
 
 // `mock.module` is process-global with no unmock API — hand the real module
 // back so the next file in the same run does not inherit these stubs.
 afterAll(() => {
-  mock.module("./repositories", () => realRepositories);
+  mock.module("./repositories", () => REAL_REPOSITORIES);
 });
 
 const SEEDED_ROW = {
@@ -54,6 +61,7 @@ describe("initializeAdminReadOnlyUser", () => {
     existingRow = null;
     mockWriteUser.mockClear();
     mockSearchUser.mockClear();
+    mockDeleteSessionsAuthenticatedAs.mockClear();
   });
 
   afterAll(() => {
@@ -97,6 +105,29 @@ describe("initializeAdminReadOnlyUser", () => {
     expect(written[0].password).toMatch(/^[0-9a-f]{64}$/);
     expect(infoSpy).toHaveBeenCalled();
     infoSpy.mockRestore();
+  });
+
+  it("deletes the sessions the revoked credential already issued", async () => {
+    delete process.env.ADMIN_RO_PASSWORD;
+    existingRow = SEEDED_ROW;
+
+    await runInitialize();
+
+    // Refusing new logins is not a revocation on its own: the cookie outlives
+    // the password it was minted from and `rolling` renews its window.
+    expect(mockDeleteSessionsAuthenticatedAs).toHaveBeenCalledTimes(1);
+    expect(mockDeleteSessionsAuthenticatedAs.mock.calls[0][0]).toBe(
+      ADMIN_RO_USERNAME
+    );
+  });
+
+  it("leaves sessions alone when the variable is set", async () => {
+    process.env.ADMIN_RO_PASSWORD = "ro-secret";
+    existingRow = SEEDED_ROW;
+
+    await runInitialize();
+
+    expect(mockDeleteSessionsAuthenticatedAs).not.toHaveBeenCalled();
   });
 
   it("revokes with a password that exists nowhere, not a fixed sentinel", async () => {

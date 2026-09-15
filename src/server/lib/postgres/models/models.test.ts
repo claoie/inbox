@@ -82,6 +82,8 @@ function makeSessionData(overrides: Record<string, unknown> = {}): Record<string
     session_user_id: "cccccccc-0000-0000-0000-000000000003",
     session_username: "alice",
     session_email: "alice@example.com",
+    session_is_read_only: null,
+    session_authenticated_as: null,
     cookie_original_max_age: 86400000,
     cookie_max_age: 86400000,
     cookie_signed: true,

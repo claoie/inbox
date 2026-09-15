@@ -1,6 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { pool } from "./client";
-import { writeUser, searchUser } from "./repositories";
+import {
+  writeUser,
+  searchUser,
+  deleteSessionsAuthenticatedAs,
+} from "./repositories";
 import { buildCreateTable, buildCreateIndex, buildIndexName } from "./database";
 import { runBootMaintenance, MaintenanceWork, Statement } from "./maintenance";
 import { sendAlarm } from "../alarm";
@@ -301,9 +305,9 @@ export const initializeAdminUser = async (): Promise<void> => {
  *   Authenticating with these credentials produces a session whose effective
  *   identity is admin and whose `isReadOnly` flag refuses every mutating
  *   surface.
- * - unset — revokes any account a previous boot seeded, so removing the env var
- *   and redeploying is a complete revocation rather than a no-op that leaves a
- *   working credential behind.
+ * - unset — revokes any account a previous boot seeded and deletes the sessions
+ *   it already issued, so removing the env var and redeploying is a complete
+ *   revocation rather than a no-op that leaves a working credential behind.
  */
 export const initializeAdminReadOnlyUser = async (): Promise<void> => {
   const { ADMIN_RO_PASSWORD } = process.env;
@@ -335,6 +339,10 @@ export const initializeAdminReadOnlyUser = async (): Promise<void> => {
  * login can present. Retaining the column as a valid hash (rather than
  * clearing it) keeps the three authentication surfaces on their normal
  * wrong-password path, since `bcrypt.compare` rejects a null hash outright.
+ *
+ * Refusing new logins is only half of it: sessions outlive the password they
+ * were minted from, and the cookie is rolling, so the sessions the credential
+ * already issued are deleted in the same step.
  */
 const revokeAdminReadOnlyUser = async (): Promise<void> => {
   const existing = await searchUser({ username: ADMIN_RO_USERNAME });
@@ -354,7 +362,10 @@ const revokeAdminReadOnlyUser = async (): Promise<void> => {
   });
   if (!revoked?._id) throw new Error("Failed to revoke read-only admin user");
 
+  const deletedSessions = await deleteSessionsAuthenticatedAs(ADMIN_RO_USERNAME);
+
   logger.info(
-    "ADMIN_RO_PASSWORD is not set — revoked the previously seeded read-only admin user."
+    "ADMIN_RO_PASSWORD is not set — revoked the previously seeded read-only admin user.",
+    { deletedSessions }
   );
 };

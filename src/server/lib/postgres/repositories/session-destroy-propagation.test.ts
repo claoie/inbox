@@ -24,6 +24,8 @@ const liveSessionRow = () => ({
   session_user_id: "u1",
   session_username: "alice",
   session_email: "alice@example.com",
+  session_is_read_only: null,
+  session_authenticated_as: null,
   cookie_original_max_age: WEEK_MS,
   cookie_max_age: WEEK_MS,
   cookie_signed: null,

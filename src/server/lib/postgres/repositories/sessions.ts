@@ -7,6 +7,8 @@ import {
   SESSION_USER_ID,
   SESSION_USERNAME,
   SESSION_EMAIL,
+  SESSION_IS_READ_ONLY,
+  SESSION_AUTHENTICATED_AS,
   COOKIE_ORIGINAL_MAX_AGE,
   COOKIE_MAX_AGE,
   COOKIE_SIGNED,
@@ -60,6 +62,8 @@ export const updateSession = async (
       [SESSION_USER_ID]: user.id,
       [SESSION_USERNAME]: user.username,
       [SESSION_EMAIL]: user.email,
+      [SESSION_IS_READ_ONLY]: user.isReadOnly ?? null,
+      [SESSION_AUTHENTICATED_AS]: user.authenticatedAs ?? null,
       [COOKIE_ORIGINAL_MAX_AGE]: cookie.originalMaxAge,
       [COOKIE_MAX_AGE]: cookie.maxAge,
       [COOKIE_SIGNED]: cookie.signed,
@@ -102,6 +106,32 @@ export const purgeSessions = async (): Promise<number> => {
     });
   } catch (error) {
     logger.error("Failed to purge sessions", {}, error);
+    return 0;
+  }
+};
+
+/**
+ * Deletes every session issued to a given authenticating credential.
+ * Revoking a credential has to reach the sessions it already issued: the
+ * cookie outlives the password it was minted from, and `rolling` renews its
+ * window on every request, so a credential that is no longer accepted at login
+ * would otherwise stay usable indefinitely through an existing session.
+ * @param authenticatedAs
+ * @returns A promise to be a count of deleted sessions.
+ */
+export const deleteSessionsAuthenticatedAs = async (
+  authenticatedAs: string
+): Promise<number> => {
+  try {
+    return await sessionsTable.deleteWhere({
+      [SESSION_AUTHENTICATED_AS]: authenticatedAs,
+    });
+  } catch (error) {
+    logger.error(
+      "Failed to delete sessions by authenticated credential",
+      { authenticatedAs },
+      error
+    );
     return 0;
   }
 };
@@ -164,6 +194,11 @@ export class PostgresSessionStore extends Store {
       runtimeSession.user.id = sessionModel.session_user_id;
       runtimeSession.user.username = sessionModel.session_username;
       runtimeSession.user.email = sessionModel.session_email;
+      if (sessionModel.session_is_read_only) {
+        runtimeSession.user.isReadOnly = true;
+        runtimeSession.user.authenticatedAs =
+          sessionModel.session_authenticated_as ?? undefined;
+      }
       runtimeSession.cookie = cookie;
 
       return callback(null, runtimeSession);
