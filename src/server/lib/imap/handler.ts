@@ -21,24 +21,51 @@ import { logger } from "server";
 // running at once across ALL sockets is bounded, rather than growing
 // with however many sockets a client happens to open concurrently.
 // Protocol/handshake commands (NOOP, IDLE, LOGIN, CAPABILITY, LOGOUT,
-// CHECK, ...) stay ungated: they are cheap, and IDLE in particular must
-// never queue behind a busy budget since a client relies on it for
-// timely push notifications, not throughput.
-const BUDGETED_COMMAND_TYPES = new Set<ImapRequest["type"]>([
-  "LIST",
-  "LSUB",
-  "SELECT",
-  "EXAMINE",
-  "STATUS",
-  "FETCH",
-  "SEARCH",
-  "STORE",
-  "COPY",
-  "MOVE",
-  "EXPUNGE",
-  "APPEND",
-  "UID",
-]);
+// CHECK, ...) stay ungated: they are cheap. That only keeps IDLE off the
+// GLOBAL budget, not off this session's OWN serial drain — a client that
+// pipelines a budgeted command immediately followed by IDLE on the same
+// connection still has the IDLE wait for the earlier command's queueing
+// AND processing, exactly as it already waited for that command's
+// processing time before this budget existed (`drainCommands` runs the
+// whole per-session queue inside `session.runSerial`; see its comment).
+//
+// A `Record` (not a `Set`) so a new `ImapRequest` variant is a typecheck
+// failure here rather than a silent ungated default.
+const BUDGETED_COMMAND_TYPES: Record<ImapRequest["type"], boolean> = {
+  CAPABILITY: false,
+  NOOP: false,
+  LOGIN: false,
+  AUTHENTICATE: false,
+  LIST: true,
+  LSUB: true,
+  SELECT: true,
+  EXAMINE: true,
+  CREATE: false,
+  DELETE: false,
+  RENAME: false,
+  SUBSCRIBE: false,
+  UNSUBSCRIBE: false,
+  STATUS: true,
+  APPEND: true,
+  IDLE: false,
+  CHECK: false,
+  CLOSE: false,
+  EXPUNGE: true,
+  SEARCH: true,
+  FETCH: true,
+  STORE: true,
+  COPY: true,
+  MOVE: true,
+  UID: true,
+  ID: false,
+  DONE: false,
+  LOGOUT: false,
+  STARTTLS: false,
+  NAMESPACE: false,
+  ENABLE: false,
+  UNSELECT: false,
+  GETQUOTAROOT: false,
+};
 
 // Per-command diagnostic log thresholds. A command is "interesting"
 // (logged at INFO) if ANY of these thresholds is exceeded. Otherwise
@@ -52,6 +79,11 @@ const BUDGETED_COMMAND_TYPES = new Set<ImapRequest["type"]>([
 // - Anything abnormally slow (`durationMs >= 100`) surfaces regardless
 //   of size — a slow FLAGS query is diagnosable evidence for a DB /
 //   pool issue.
+// - A budgeted command that queued >= 100ms behind the command budget
+//   surfaces too, even if it then runs in a couple ms — `durationMs`
+//   deliberately excludes the queue wait (see `handleRequest`'s acquire
+//   comment), so without this a starved command logs as fast and small
+//   and the ONLY signal that the budget is undersized never reaches INFO.
 const INTERESTING_RSS_DELTA_MB = 1;
 const INTERESTING_DURATION_MS = 100;
 const INTERESTING_RESPONSE_BYTES = 4096;
@@ -870,7 +902,7 @@ export class ImapRequestHandler {
     // command queued behind the budget doesn't attribute the OTHER
     // in-flight commands' RSS growth (and its own queueing latency) to
     // itself — `waitedForCommandBudgetMs` below carries that separately.
-    const budgeted = BUDGETED_COMMAND_TYPES.has(request.type);
+    const budgeted = BUDGETED_COMMAND_TYPES[request.type];
     const waitedForCommandBudgetMs = budgeted
       ? Math.round(await acquireCommandBudget())
       : 0;
@@ -1075,11 +1107,12 @@ export class ImapRequestHandler {
       const rssDeltaMB = Math.round((rssAfter - rssBefore) / 1_048_576);
       const responseBytes = session.bytesWritten - bytesBefore;
       const durationMs = Math.round(performance.now() - startedAt);
+      const waitedForBodyBudgetMs = Math.round(getBodyBudgetWaitMs());
       const isInteresting =
         Math.abs(rssDeltaMB) >= INTERESTING_RSS_DELTA_MB ||
         durationMs >= INTERESTING_DURATION_MS ||
-        responseBytes >= INTERESTING_RESPONSE_BYTES;
-      const waitedForBodyBudgetMs = Math.round(getBodyBudgetWaitMs());
+        responseBytes >= INTERESTING_RESPONSE_BYTES ||
+        waitedForCommandBudgetMs >= INTERESTING_DURATION_MS;
       // Attribution of the per-command RSS delta by memory class. `rss` is
       // OS-reported (Node process resident) — the other four are V8/Node
       // internal counters that partition where the growth actually lives:

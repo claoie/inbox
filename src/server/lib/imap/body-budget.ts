@@ -1,26 +1,17 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { logger } from "server";
+import { createFifoSemaphore } from "./fifo-semaphore";
+import { parseConcurrencyValue } from "./concurrency-env";
 
 const DEFAULT_CONCURRENCY = 3;
 
-const parseConcurrency = (): number => {
-  const raw = process.env.IMAP_BODY_FETCH_CONCURRENCY;
-  if (!raw) return DEFAULT_CONCURRENCY;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) {
-    logger.warn(
-      "[body-budget] IMAP_BODY_FETCH_CONCURRENCY invalid, falling back to default",
-      { raw, default: DEFAULT_CONCURRENCY }
-    );
-    return DEFAULT_CONCURRENCY;
-  }
-  return parsed;
-};
+const CAPACITY = parseConcurrencyValue(
+  process.env.IMAP_BODY_FETCH_CONCURRENCY,
+  "IMAP_BODY_FETCH_CONCURRENCY",
+  DEFAULT_CONCURRENCY,
+  "body-budget"
+);
 
-const CAPACITY = parseConcurrency();
-
-let inFlight = 0;
-const waitQueue: Array<() => void> = [];
+const semaphore = createFifoSemaphore(CAPACITY);
 
 /**
  * Per-request wait accumulator. Bound at the top of the IMAP command
@@ -44,25 +35,9 @@ export const runInBodyBudgetContext = <T>(fn: () => T): T =>
 export const getBodyBudgetWaitMs = (): number => waitStore.getStore()?.ms ?? 0;
 
 const acquire = async (): Promise<void> => {
-  if (inFlight < CAPACITY) {
-    inFlight++;
-    return;
-  }
-  const start = performance.now();
-  await new Promise<void>((resolve) => {
-    waitQueue.push(() => {
-      inFlight++;
-      resolve();
-    });
-  });
+  const waitedMs = await semaphore.acquire();
   const ledger = waitStore.getStore();
-  if (ledger) ledger.ms += performance.now() - start;
-};
-
-const release = (): void => {
-  inFlight--;
-  const next = waitQueue.shift();
-  if (next) next();
+  if (ledger) ledger.ms += waitedMs;
 };
 
 export const withBodyBudget = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -70,7 +45,7 @@ export const withBodyBudget = async <T>(fn: () => Promise<T>): Promise<T> => {
   try {
     return await fn();
   } finally {
-    release();
+    semaphore.release();
   }
 };
 
@@ -95,14 +70,11 @@ export const withBodyBudgetStream = async function* <T>(
   try {
     yield* makeStream();
   } finally {
-    release();
+    semaphore.release();
   }
 };
 
 /** Exposed for tests. */
-export const _resetBodyBudget = (): void => {
-  inFlight = 0;
-  waitQueue.length = 0;
-};
+export const _resetBodyBudget = (): void => semaphore.reset();
 
 export const bodyBudgetCapacity = (): number => CAPACITY;
