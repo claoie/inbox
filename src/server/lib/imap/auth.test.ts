@@ -29,6 +29,7 @@ import { Socket } from "net";
 import { SignedUser } from "common";
 import { restoreLeaves } from "test-helpers";
 import { ADMIN_RO_USERNAME, ADMIN_USERNAME } from "../read-only";
+import { encryptPassword } from "../users";
 import * as authRateLimit from "../auth-rate-limit";
 
 const realBcrypt = (globalThis as Record<string, unknown>).__REAL_BCRYPT as {
@@ -103,6 +104,9 @@ const CAPABILITIES = "IMAP4rev1 AUTH=PLAIN";
 
 /** A complete bcrypt digest — 22 salt chars plus 31 of hash, base64-ish alphabet. */
 const BCRYPT_HASH = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/;
+
+/** The cost field of a bcrypt digest — `10` out of `$2b$10$…`. */
+const costOf = (hash: string) => hash.split("$")[2];
 
 interface FakeSocket extends EventEmitter {
   writes: string[];
@@ -418,6 +422,8 @@ describe("handleLogin", () => {
     ]);
     expect(harness.socket.destroyed).toBe(true);
     expect(mockGetUser).not.toHaveBeenCalled();
+    expect(mockRecordAuthFailure).not.toHaveBeenCalled();
+    expect(mockResetAuthFailures).not.toHaveBeenCalled();
   });
 
   it("strips the surrounding quotes of a quoted-string username and password", async () => {
@@ -461,6 +467,7 @@ describe("handleLogin", () => {
       "B5 NO [AUTHENTICATIONFAILED] Invalid credentials.\r\n",
     ]);
     expect(mockRecordAuthFailure).toHaveBeenCalledWith(REMOTE_IP);
+    expect(mockResetAuthFailures).not.toHaveBeenCalled();
     expect(harness.socket.destroyed).toBe(false);
   });
 
@@ -495,6 +502,16 @@ describe("handleLogin", () => {
     expect(harness.socket.destroyed).toBe(true);
   });
 
+  it("propagates a throwing user lookup instead of answering BAD, unlike AUTHENTICATE", async () => {
+    const harness = makeHarness();
+    mockGetUser.mockImplementation(() => Promise.reject(new Error("connection terminated")));
+
+    await expect(
+      handleLogin("B9", ["admin", "hunter2"], ...loginArgs(harness))
+    ).rejects.toThrow("connection terminated");
+    expect(harness.socket.writes).toEqual([]);
+  });
+
   it("completes with a capability list, a bound store, and a reset failure counter", async () => {
     const harness = makeHarness();
     mockGetUser.mockImplementation(async () => ({
@@ -513,6 +530,8 @@ describe("handleLogin", () => {
       `B8 OK [CAPABILITY ${CAPABILITIES}] LOGIN completed\r\n`,
     ]);
     expect(mockResetAuthFailures).toHaveBeenCalledWith(REMOTE_IP);
+    expect(mockRecordAuthFailure).not.toHaveBeenCalled();
+    expect(harness.socket.destroyed).toBe(false);
     expect(mockLoggerInfo).toHaveBeenCalledWith("IMAP LOGIN success", {
       component: "imap",
       tag: "B8",
@@ -566,6 +585,18 @@ describe("username enumeration resistance", () => {
     expect(unknownUserRounds).toBe(1);
     expect(wrongPasswordRounds).toBe(unknownUserRounds);
     expect(unknown.socket.writes).toEqual(known.socket.writes.map((w) => w.replace("C4", "C3")));
+  });
+
+  it("compares an unknown user against a digest of the cost the app hashes at", async () => {
+    const { args } = makeHarness();
+
+    await handleAuthenticate("C7", "PLAIN", plainResponse("nobody", "hunter2"), ...args);
+
+    // Derived from the app's own hasher rather than written as a literal: a
+    // dummy hash cheaper than what real accounts carry answers in a few
+    // milliseconds against a few dozen, which is the oracle this path closes
+    // — and its shape stays well-formed the whole way down.
+    expect(costOf(compareCalls[0]![1])).toBe(costOf(await encryptPassword("x")));
   });
 
   it("does not reuse a real account's digest for the unknown-user comparison", async () => {
@@ -755,6 +786,9 @@ describe("read-only credential session resolution", () => {
     expect(harness.socket.writes).toEqual([
       "E6 NO [AUTHENTICATIONFAILED] Invalid credentials.\r\n",
     ]);
+    expect(mockRecordAuthFailure).toHaveBeenCalledWith(REMOTE_IP);
+    expect(mockResetAuthFailures).not.toHaveBeenCalled();
+    expect(harness.socket.destroyed).toBe(false);
   });
 });
 
