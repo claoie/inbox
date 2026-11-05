@@ -15,7 +15,7 @@ For detailed instruction, please keep reading this document.
 
 1. Clone this git repository
    ```
-   git clone https://github.com/hoiekim/inbox.git
+   git clone https://github.com/hoiekim/mail.git
    ```
 2. Copy `.env.example` file and name it `.env.local` then determine environment variables in `.env.local` file as following.
 
