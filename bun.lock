@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "inbox",
+      "name": "mail",
       "dependencies": {
         "web-push": "^3.6.3",
       },

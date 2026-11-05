@@ -2,7 +2,7 @@
 version: "3.3"
 
 services:
-  inbox:
+  mail:
     build: ./
     env_file:
       - ./.env.local
@@ -27,11 +27,11 @@ services:
     # OOM triage today loses history that way. journald keeps everything
     # under systemd-journald's retention (SystemMaxUse / MaxRetentionSec
     # in /etc/systemd/journald.conf on the host). Read live or historical:
-    #   journalctl CONTAINER_TAG=hoie-inbox --since '1 hour ago'
+    #   journalctl CONTAINER_TAG=hoie-mail --since '1 hour ago'
     logging:
       driver: journald
       options:
-        tag: "hoie-inbox"
+        tag: "hoie-mail"
     volumes:
       - attachments:/app/attachments
     environment:
@@ -39,7 +39,7 @@ services:
       - POSTGRES_PORT=5432
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=inbox
-      - POSTGRES_DATABASE=inbox
+      - POSTGRES_DATABASE=mail
       - SMTP_PORT=2525
 
   postgres:
@@ -47,7 +47,7 @@ services:
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=inbox
-      - POSTGRES_DB=inbox
+      - POSTGRES_DB=mail
     restart: always
     volumes:
       - pgdata:/var/lib/postgresql/data

@@ -36,7 +36,7 @@ import {
 } from "./models";
 
 export const version = "1";
-export const index = "inbox" + (version ? `-${version}` : "");
+export const index = "mail" + (version ? `-${version}` : "");
 
 /** Every table the app owns, in DDL-creation order (FK dependencies first). */
 export const tables: Table<unknown, Schema>[] = [

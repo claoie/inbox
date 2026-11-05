@@ -1,4 +1,4 @@
-// Inbox service worker
+// Mail service worker
 //
 // Two responsibilities:
 //   1. Push notifications (badge + system notification + server-side refresh
@@ -12,7 +12,7 @@
 //      cache and the app keeps working until the user reloads. Mirrors
 //      `budget/src/client/sw.ts` lines 63–79 (Hoie 2026-05-19).
 
-const CACHE_NAME = "inbox-v1";
+const CACHE_NAME = "mail-v1";
 
 self.addEventListener("install", (event) => {
   // Precache the SPA shell so it's available offline.

@@ -44,7 +44,7 @@ src/
 
 ## Services
 
-Inbox runs multiple services:
+Mail runs multiple services:
 
 | Service | Default Port | Override Env | Description |
 |---------|--------------|--------------|-------------|

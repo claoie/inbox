@@ -5,7 +5,7 @@ const {
   POSTGRES_PORT: port = "5432",
   POSTGRES_USER: user = "postgres",
   POSTGRES_PASSWORD: password,
-  POSTGRES_DATABASE: database = "inbox",
+  POSTGRES_DATABASE: database = "mail",
 } = process.env;
 
 const config: PoolOptions = {

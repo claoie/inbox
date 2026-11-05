@@ -54,20 +54,20 @@ describe("unregisterServiceWorker", () => {
     g.navigator = { serviceWorker: { getRegistrations } };
 
     const del = mock(async () => true);
-    g.caches = { keys: mock(async () => ["inbox-v1", "old"]), delete: del };
+    g.caches = { keys: mock(async () => ["mail-v1", "old"]), delete: del };
 
     await unregisterServiceWorker();
 
     expect(unregisterA).toHaveBeenCalledTimes(1);
     expect(unregisterB).toHaveBeenCalledTimes(1);
     expect(del).toHaveBeenCalledTimes(2);
-    expect(del.mock.calls.map((c) => c[0]).sort()).toEqual(["inbox-v1", "old"]);
+    expect(del.mock.calls.map((c) => c[0]).sort()).toEqual(["mail-v1", "old"]);
   });
 
   it("clears caches even when serviceWorker is unavailable", async () => {
     g.navigator = {};
     const del = mock(async () => true);
-    g.caches = { keys: mock(async () => ["inbox-v1"]), delete: del };
+    g.caches = { keys: mock(async () => ["mail-v1"]), delete: del };
     await unregisterServiceWorker();
     expect(del).toHaveBeenCalledTimes(1);
   });

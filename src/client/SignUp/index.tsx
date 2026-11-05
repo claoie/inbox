@@ -108,7 +108,7 @@ const SignUp = () => {
       username: usernameInput,
       password: passwordInput
     });
-    if (email) window.name = "inbox-confirm";
+    if (email) window.name = "mail-confirm";
   };
 
   const onKeyDownInput = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -118,7 +118,7 @@ const SignUp = () => {
   return (
     <div className="container_login">
       <blockquote className="login_card">
-        <h3 className="greeting">Welcome to Inbox!</h3>
+        <h3 className="greeting">Welcome to Mail!</h3>
         <div className="info_message">{infoMessage}</div>
         <input
           className="login_ui"

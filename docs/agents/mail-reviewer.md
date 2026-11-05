@@ -8,7 +8,7 @@ If you post a review on GitHub, post it from the GitHub account your `gh` CLI is
 
 Read these files in order. They are the source of truth for what to flag and how the maintainer expects reviews to read.
 
-1. `docs/agents/inbox-reviewer/F-cross-cutting.md` — always-loaded §F rules
+1. `docs/agents/mail-reviewer/F-cross-cutting.md` — always-loaded §F rules
 2. **§F code-area rules — load only the areas the diff touches** (see diff-path map below). §F was split 2026-08-19 into 4 files; loading only the touched areas cuts reviewer prompt size ~30-40% on typical spawns.
 
 Multi-round verification pattern: the operator is supposed to run you BEFORE the maintainer asks. If you suspect this is the first review round and the PR hasn't been merged yet, list edge cases the operator's E2E should also cover (so the next round catches what a single review-then-merge would miss).
@@ -17,9 +17,9 @@ Multi-round verification pattern: the operator is supposed to run you BEFORE the
 
 | Diff path prefix | Load |
 |---|---|
-| `src/server/lib/imap/**`, `src/server/lib/smtp.ts`, `src/server/lib/mails/**` | `docs/agents/inbox-reviewer/F-imap.md` |
-| `src/server/lib/postgres/**`, any file adding a migration/DDL | `docs/agents/inbox-reviewer/F-postgres.md` |
-| `src/client/**`, any user-facing rendered surface | `docs/agents/inbox-reviewer/F-client.md` |
+| `src/server/lib/imap/**`, `src/server/lib/smtp.ts`, `src/server/lib/mails/**` | `docs/agents/mail-reviewer/F-imap.md` |
+| `src/server/lib/postgres/**`, any file adding a migration/DDL | `docs/agents/mail-reviewer/F-postgres.md` |
+| `src/client/**`, any user-facing rendered surface | `docs/agents/mail-reviewer/F-client.md` |
 | anything else, OR diff spans ≥2 of the above areas | load ALL 3 area files |
 
 Cross-cutting (`F-cross-cutting.md`) is **always** loaded regardless of diff shape. When in doubt, load all 4 area files — false-load costs ~10-25 KB tokens; a false-skip misses a bug class.
@@ -34,7 +34,7 @@ OWNER=${REPO%%/*}
 BASE_REMOTE=$(git remote -v | awk -v r="$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')" 'tolower($2) ~ ("[:/]" r "(\\.git)?$") && $3 == "(fetch)" {print $1; exit}')
 BASE=
 { [ -n "$BASE_REMOTE" ] && git fetch -q "$BASE_REMOTE" main; } || git fetch -q "https://github.com/$REPO.git" main && BASE=$(git rev-parse --verify -q FETCH_HEAD)
-[ -n "$REPO" ] && [ -n "${BASE:-}" ] && { [ -f "$(git rev-parse --show-toplevel)/docs/agents/inbox-reviewer.md" ] || git cat-file -e "$BASE:docs/agents/inbox-reviewer.md" 2>/dev/null; } || echo "BLOCKED: repo-not-resolved"
+[ -n "$REPO" ] && [ -n "${BASE:-}" ] && { [ -f "$(git rev-parse --show-toplevel)/docs/agents/mail-reviewer.md" ] || git cat-file -e "$BASE:docs/agents/mail-reviewer.md" 2>/dev/null; } || echo "BLOCKED: repo-not-resolved"
 git diff "$BASE...HEAD" --stat
 git diff "$BASE...HEAD"
 ```
@@ -68,7 +68,7 @@ OWNER=${REPO%%/*}
 BASE_REMOTE=$(git remote -v | awk -v r="$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')" 'tolower($2) ~ ("[:/]" r "(\\.git)?$") && $3 == "(fetch)" {print $1; exit}')
 BASE=
 { [ -n "$BASE_REMOTE" ] && git fetch -q "$BASE_REMOTE" main; } || git fetch -q "https://github.com/$REPO.git" main && BASE=$(git rev-parse --verify -q FETCH_HEAD)
-[ -n "$REPO" ] && [ -n "${BASE:-}" ] && { [ -f "$(git rev-parse --show-toplevel)/docs/agents/inbox-reviewer.md" ] || git cat-file -e "$BASE:docs/agents/inbox-reviewer.md" 2>/dev/null; } || echo "BLOCKED: repo-not-resolved"
+[ -n "$REPO" ] && [ -n "${BASE:-}" ] && { [ -f "$(git rev-parse --show-toplevel)/docs/agents/mail-reviewer.md" ] || git cat-file -e "$BASE:docs/agents/mail-reviewer.md" 2>/dev/null; } || echo "BLOCKED: repo-not-resolved"
 git diff $(git merge-base "$BASE" <reviewed-sha>) <reviewed-sha> > /tmp/before.diff
 git diff $(git merge-base "$BASE" <head>)         <head>         > /tmp/after.diff
 diff /tmp/before.diff /tmp/after.diff    # identical (modulo blob hashes) => no work
@@ -155,7 +155,7 @@ The repo runs plain `bun test` (`package.json` `test` = `bun test`):
 
 ### F. Common gotchas — SPLIT (2026-08-19)
 
-The 60 §F rules were split into 4 area files under `docs/agents/inbox-reviewer/` per the diff-path map in the Boot section:
+The 60 §F rules were split into 4 area files under `docs/agents/mail-reviewer/` per the diff-path map in the Boot section:
 
 - **`F-cross-cutting.md`** (29 rules, ~30 KB) — **always loaded**. Code hygiene, PII, verification discipline, scale principles, testing gotchas that reach across the codebase, alarm-suppression review.
 - **`F-imap.md`** (12 rules, ~11 KB) — IMAP protocol / session / wire. STARTTLS, IDLE, session serialization, envelope-vs-header, size-gated symptoms, byte-count-changing serializers, OCTETS-vs-UTF-16.
@@ -420,7 +420,7 @@ Body format — keep it tight:
 
 **Omit any of the three headings entirely if its list is empty.** Don't write "### Low" followed by "No further blockers" or a blank — dropping the section IS the signal, and it keeps the review skimmable. If ALL three lists are empty, the review body is just the verdict + one-line evidence trail.
 
-— Generated by the inbox-reviewer agent.
+— Generated by the mail-reviewer agent.
 ```
 
 🔴 **GitHub-writing rule**: never write `#N` to mark a numbered item inside the review body. GitHub auto-links any `#NNN` token to issue/PR NNN in the same repo and inlines its title — confusing when the reference isn't intended that way. Reserve `#N` for real issue/PR references (`Closes #333`, `Supersedes #482`). Everything else: drop the `#`. Examples:
@@ -463,7 +463,7 @@ gh pr create -R "$REPO" --base main --head "<push-owner>:reviewer-rule-$SLUG" \
 
 - **Check the PR list before writing anything.** If an open rule PR covers the pattern, comment the new evidence on it instead. If a closed, unmerged one covers it, the maintainer declined that rule: don't reopen it.
 - **Push** the branch to the remote your environment normally pushes to: your fork, or this repository when your account has write access. `<push-owner>` is that remote's owner. Commit with the git identity your environment is configured with.
-- **Where the rule goes:** a rule for one of the Phase 2 angles (tests, the test framework, prose claims, public-repo hygiene, build and CI, and so on) goes in that angle's section of this prompt. A code-area rule goes in the F-file that the Boot section's diff-path map routes its area to, or in `docs/agents/inbox-reviewer/F-cross-cutting.md` when it spans areas or no area fits. Don't create a new F-file: the Boot list, the map and section F all count the existing ones. Process rules (how to gather, verify or post a review) go in the matching Phase section. Match the surrounding rules' shape: a bold one-line rule, then the check and the failure it prevents.
+- **Where the rule goes:** a rule for one of the Phase 2 angles (tests, the test framework, prose claims, public-repo hygiene, build and CI, and so on) goes in that angle's section of this prompt. A code-area rule goes in the F-file that the Boot section's diff-path map routes its area to, or in `docs/agents/mail-reviewer/F-cross-cutting.md` when it spans areas or no area fits. Don't create a new F-file: the Boot list, the map and section F all count the existing ones. Process rules (how to gather, verify or post a review) go in the matching Phase section. Match the surrounding rules' shape: a bold one-line rule, then the check and the failure it prevents.
 - **The PR body** states the rule's trigger, the evidence (a link to the finding, and to the commit that fixed it when the author did), and why the existing rules didn't catch it. Section M's public-repo hygiene applies to the rule text and the body.
 - **One rule per PR**, opened ready for review, not as a draft.
 

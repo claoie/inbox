@@ -2,16 +2,16 @@ If these instructions are outdated, please raise an issue or send us a Pull Requ
 
 # How to Setup
 
-You need these to use Inbox:
+You need these to use Mail:
 
 - A domain name
-- A server to run Inbox
+- A server to run Mail
 
-If you want to send emails using Inbox. You need a 3rd party email sending service.(Currently we're using [Mailgun](https://mailgun.com))
+If you want to send emails using Mail. You need a 3rd party email sending service.(Currently we're using [Mailgun](https://mailgun.com))
 
 For detailed instruction, please keep reading this document.
 
-## 1. Install Inbox
+## 1. Install Mail
 
 1. Clone this git repository
    ```
@@ -21,7 +21,7 @@ For detailed instruction, please keep reading this document.
 
    ```
    EMAIL_DOMAIN             // Domain name to use when sending & receiving mails.
-   APP_HOSTNAME             // Domain name that hosts inbox web app.
+   APP_HOSTNAME             // Domain name that hosts the web app.
 
    SECRET                   // Private value that signs session cookies. Required when
                             // NODE_ENV=production: the server refuses to boot when it is
@@ -46,7 +46,7 @@ For detailed instruction, please keep reading this document.
 
 ## 2. Setup DNS Records
 
-Make sure your domain's MX record points to the server you're running Inbox. In order to setup your MX record, check your DNS settings in your domain's provider.
+Make sure your domain's MX record points to the server you're running Mail. In order to setup your MX record, check your DNS settings in your domain's provider.
 
 - Exmaple (assuming your domain name is `domain.com` and your server ip is `0.0.0.0`):
   |Type|Name|Key|Meaning|
@@ -82,7 +82,7 @@ If you want to use this app only for receiving mails, skip this step.
    POSTGRES_PORT=5432       // PostgreSQL port
    POSTGRES_USER=postgres   // PostgreSQL username
    POSTGRES_PASSWORD=inbox  // PostgreSQL password
-   POSTGRES_DATABASE=inbox  // PostgreSQL database name
+   POSTGRES_DATABASE=mail   // PostgreSQL database name
    ```
 
    Then run app using this command
@@ -122,7 +122,7 @@ This app in default uses `.env` and `.env.local` to load environment variables. 
 
 ## 5. Enjoy!
 
-Default port number is 3004. So you can connect to Inbox at http://(your-server-ip):3004
+Default port number is 3004. So you can connect to Mail at http://(your-server-ip):3004
 
 For development mode, use port number 3000 instead.
 

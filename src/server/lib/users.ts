@@ -278,7 +278,7 @@ export const createAuthenticationMail = (
 </p>
 <a
   href="${href}"
-  target="inbox-confirm"
+  target="mail-confirm"
   style="display: flex; align-items: center; justify-content: center; margin: 2rem auto; padding: 5px; background-color: #3291FF; color: white; border: none; height: 40px; width: 400px; font-size: 20px;"
 >Confirm Sign Up</a>
 <p style="text-align: center;">

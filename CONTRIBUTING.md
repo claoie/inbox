@@ -1,4 +1,4 @@
-# Contributing to Inbox
+# Contributing to Mail
 
 ## Development Setup
 

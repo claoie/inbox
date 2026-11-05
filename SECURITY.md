@@ -20,7 +20,7 @@ follow-up on the same advisory thread is welcome.
 
 **In scope:**
 
-- The inbox server itself: IMAP and SMTP handling, the HTTP API, session and
+- The mail server itself: IMAP and SMTP handling, the HTTP API, session and
   credential lifecycle, spam-filtering layers, push notification delivery.
 - Anything in this repository that processes untrusted input from the
   network: parsers, authentication paths, webhook handlers.

@@ -1,6 +1,6 @@
 {
-  "short_name": "Inbox",
-  "name": "Inbox",
+  "short_name": "Mail",
+  "name": "Mail",
   "icons": [
     {
       "src": "icons/favicon.ico",
