@@ -7,7 +7,7 @@
  * 3. Transforms and inserts into PostgreSQL
  *
  * Prerequisites:
- * - PostgreSQL must be initialized by inbox server first (run the server once)
+ * - PostgreSQL must be initialized by the mail server first (run the server once)
  * - Tables must already exist
  *
  * Usage: npx ts-node scripts/migrate-es-to-pg.ts
@@ -454,7 +454,7 @@ async function migrate() {
   console.log("=".repeat(60));
   console.log();
   console.log("NOTE: This script assumes PostgreSQL is already initialized.");
-  console.log("Run the inbox server at least once to create tables first.");
+  console.log("Run the mail server at least once to create tables first.");
   console.log();
 
   try {
@@ -475,7 +475,7 @@ async function migrate() {
 
     if (tableCheck.rows.length < 4) {
       console.error(
-        "\nERROR: Not all required tables exist. Please run the inbox server first to initialize the database."
+        "\nERROR: Not all required tables exist. Please run the mail server first to initialize the database."
       );
       console.error(
         "Required tables: users, sessions, mails, push_subscriptions"

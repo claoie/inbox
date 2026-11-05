@@ -281,7 +281,7 @@ describe("createAuthenticationMail", () => {
     expect(mail.sender).toBe("admin");
     expect(mail.senderFullName).toBe("Administrator");
     expect(mail.to).toBe("alice@example.com");
-    expect(mail.subject).toBe("Please set your password for Inbox");
+    expect(mail.subject).toBe("Please set your password for Mail");
   });
 
   it("embeds email and token in confirmation link", () => {

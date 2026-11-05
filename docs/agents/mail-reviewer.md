@@ -93,7 +93,7 @@ Walk every hunk through **every** angle below (A through the last letter). Not s
 **Before finalizing R1's finding list, run this coverage self-check.** Every "no" is more work to do before you post:
 
 1. **Every touched file / function**: have I Read the full enclosing function for every hunk (not just the changed lines)? Have I walked every applicable §F rule over each?
-2. **The PR body's every prose claim** (§H2 for inbox): have I checked each one against the code, including sections whose paragraphs the diff did not touch?
+2. **The PR body's every prose claim** (§H2 for mail): have I checked each one against the code, including sections whose paragraphs the diff did not touch?
 3. **Every new / modified test**: have I run the mutation-testing question — would the WRONG implementation return the same value on this fixture?
 4. **Sibling-audit** across the touched surface: comment-hygiene sites, `#N` references in source, other consumers of a renamed/removed symbol.
 5. **Cross-cutting sweeps** applicable to this diff: `mock.module` specifiers, public-repo cross-references, CI-vs-CD command drift, toolchain pins.

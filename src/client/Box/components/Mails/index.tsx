@@ -151,7 +151,7 @@ const RenderedMail = ({
     // Render the email inside a sandboxed iframe in the new tab — NOT
     // directly into the top document. A `blob:` document inherits this
     // page's origin, so any script in the email body would otherwise run
-    // with full inbox origin (cookies / session). The inline preview is
+    // with full app origin (cookies / session). The inline preview is
     // safe only because its iframe omits `allow-scripts`; the new tab must
     // preserve that backstop. The shell below carries no script of its own
     // and confines the email to an iframe whose sandbox matches the inline

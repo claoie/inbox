@@ -268,11 +268,11 @@ export const createAuthenticationMail = (
     senderFullName: "Administrator",
     sender: "admin",
     to: email,
-    subject: "Please set your password for Inbox",
+    subject: "Please set your password for Mail",
     html: `
-<h2 style="text-align: center;">Thanks for signing up with Inbox!</h2>
+<h2 style="text-align: center;">Thanks for signing up with Mail!</h2>
 <p style="text-align: center;">
-  You have requested membership confirmation email for Inbox.
+  You have requested membership confirmation email for Mail.
   <br/>
   Please click the button below to complete setting user information.
 </p>

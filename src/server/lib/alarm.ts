@@ -36,7 +36,7 @@ export const sendAlarm = async (
   const body = JSON.stringify({
     embeds: [
       {
-        title: `🚨 Inbox Server Error: ${title}`,
+        title: `🚨 Mail Server Error: ${title}`,
         description: detail.slice(0, 4000),
         color: 0xff0000,
         timestamp: new Date().toISOString(),

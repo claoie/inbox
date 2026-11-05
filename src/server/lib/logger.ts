@@ -1,5 +1,5 @@
 /**
- * Structured logging module for the inbox server.
+ * Structured logging module for the mail server.
  *
  * - Production: JSON output for log aggregators
  * - Development: Human-readable colored output

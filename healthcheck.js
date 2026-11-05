@@ -1,4 +1,4 @@
-// Docker healthcheck for inbox.
+// Docker healthcheck for mail.
 // Checks:
 //   - HTTP API health endpoint (covers DB + all IMAP/SMTP ports via /api/health)
 //   - HTTP frontend (catches missing static file serving)

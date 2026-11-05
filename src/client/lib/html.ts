@@ -36,7 +36,7 @@ const sanitizeEmailHtml = (html: string): string => {
 
   // Remove elements that can execute code or load external resources silently.
   // <link> is dropped outright: a mail has no legitimate external stylesheet,
-  // and a <link rel="stylesheet"> fetch would send the inbox origin as Referer.
+  // and a <link rel="stylesheet"> fetch would send the app origin as Referer.
   const dangerous = ["script", "iframe", "object", "embed", "applet", "base", "link"];
   dangerous.forEach((tag) => {
     doc.querySelectorAll(tag).forEach((el) => el.remove());
@@ -135,7 +135,7 @@ const sanitizeEmailHtml = (html: string): string => {
   });
 
   // Add tracking-mitigation attributes to all <img> tags so external images load
-  // without leaking the inbox origin as referrer and only when scrolled into view.
+  // without leaking the app origin as referrer and only when scrolled into view.
   doc.querySelectorAll("img").forEach((img) => {
     img.setAttribute("referrerpolicy", "no-referrer");
     if (!img.hasAttribute("loading")) img.setAttribute("loading", "lazy");

@@ -1,7 +1,7 @@
 /**
  * PostgreSQL Database Module
  *
- * Provides data access layer for the inbox application.
+ * Provides data access layer for the mail application.
  * Uses flattened column structure with JSONB for complex nested objects
  * (addresses, attachments, insights).
  *
