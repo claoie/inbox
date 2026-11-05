@@ -44,8 +44,8 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ${{ secrets.DOCKER_HUB_USERNAME }}/inbox:latest
-            ${{ secrets.DOCKER_HUB_USERNAME }}/inbox:sha-${{ steps.sha.outputs.short }}
+            ${{ secrets.DOCKER_HUB_USERNAME }}/mail:latest
+            ${{ secrets.DOCKER_HUB_USERNAME }}/mail:sha-${{ steps.sha.outputs.short }}
 
   deploy:
     needs: [check-secrets, docker-build-push]
