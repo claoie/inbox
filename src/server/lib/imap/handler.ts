@@ -19,6 +19,7 @@ import { registerConnection, unregisterConnection } from "./session-registry";
 import { LiteralSpool, removeMessageLiterals } from "./literal-spool";
 import { logger } from "server";
 import { MAX_MESSAGE_BYTES } from "../message-size";
+import { isPeerCertRejection } from "../peer-cert-rejection";
 
 // Command types whose processing (DB reads, mailbox/message-list
 // materialization, response formatting) has a non-trivial memory
@@ -957,11 +958,10 @@ export class ImapRequestHandler {
 
     socket.on("error", (error) => {
       if (!(error as Error).message?.includes("ECONNRESET")) {
-        logger.error(
-          "IMAP socket error",
-          { component: "imap", remote: `${socket.remoteAddress ?? "?"}:${socket.remotePort ?? 0}` },
-          error
-        );
+        const context = isPeerCertRejection(error)
+          ? { component: "imap", remote: `${socket.remoteAddress ?? "?"}:${socket.remotePort ?? 0}` }
+          : { component: "imap" };
+        logger.error("IMAP socket error", context, error);
       }
       if (!socket.destroyed) {
         socket.destroy();

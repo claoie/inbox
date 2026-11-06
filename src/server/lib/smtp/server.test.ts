@@ -27,7 +27,7 @@ interface Delivery {
 
 const startServer = async (overrides: Partial<SmtpServerOptions> = {}) => {
   const deliveries: Delivery[] = [];
-  const errors: (Error & { meta?: { stage?: string } })[] = [];
+  const errors: (Error & { meta?: { stage?: string; remoteAddress?: string }; remoteAddress?: string })[] = [];
   const server = createSmtpServer({
     secure: false,
     name: "mx.test",
@@ -613,5 +613,17 @@ describe.skipIf(!tempCert())("SMTP over TLS", () => {
     await c.reply(500);
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].meta?.stage).toBe("connect");
+    expect(errors[0].meta?.remoteAddress).toBe("127.0.0.1");
+  });
+
+  it("reports a failed STARTTLS handshake with the peer on the error", async () => {
+    const { port, errors } = await startServer(tlsOptions());
+    const c = await greeted(port);
+    await c.command("EHLO client.example");
+    await c.command("STARTTLS");
+    c.write("GET / HTTP/1.1\r\nHost: x\r\n\r\n");
+    await c.reply(500);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].remoteAddress).toBe("127.0.0.1");
   });
 });

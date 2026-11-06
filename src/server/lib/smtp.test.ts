@@ -2421,7 +2421,7 @@ describe("registerListeners error handler", () => {
       const { implicitTls } = await bootWithTls();
       const meta = { protocol: "smtp", stage: "connect", remoteAddress: "203.0.113.9" };
       const details = pagedDetails(() =>
-        implicitTls.emit("error", Object.assign(boringSslError("NO_SHARED_CIPHER"), { meta }))
+        implicitTls.emit("error", Object.assign(boringSslError("NO_SHARED_CIPHER"), { meta, remoteAddress: "203.0.113.9" }))
       );
 
       expect(details).toEqual([]);

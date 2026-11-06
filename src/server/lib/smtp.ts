@@ -23,6 +23,7 @@ import {
 import { verifyPassword } from "./verify-password";
 import { addressToUsername, getUserDomain, isLocalAddress } from "./util";
 import { sendAlarm } from "./alarm";
+import { isPeerCertRejection } from "./peer-cert-rejection";
 import { logger } from "./logger";
 import { getTlsCredentials } from "./tls";
 import { registerSmtpServer, unregisterSmtpServer } from "./smtp-registry";
@@ -50,23 +51,6 @@ const isImplicitTlsHandshakeFailure = (server: SmtpServer, err: Error): boolean 
 const isTlsLayerError = (err: Error): boolean => {
   const { library, code } = err as Error & { library?: string; code?: string };
   return library === "SSL routines" || (typeof code === "string" && code.startsWith("ERR_SSL_"));
-};
-
-// A peer rejecting our certificate (expired, wrong hostname, unknown CA) is a
-// server-side defect even though it surfaces as a TLS-layer error, so it pages.
-const PEER_CERT_REJECTION_ALERTS = [
-  "ALERT_BAD_CERTIFICATE",
-  "ALERT_UNSUPPORTED_CERTIFICATE",
-  "ALERT_CERTIFICATE_REVOKED",
-  "ALERT_CERTIFICATE_EXPIRED",
-  "ALERT_CERTIFICATE_UNKNOWN",
-  "ALERT_UNKNOWN_CA"
-];
-
-const isPeerCertRejection = (err: Error): boolean => {
-  const { reason } = err as Error & { reason?: string };
-  const text = `${reason ?? ""} ${err.message ?? ""}`.toUpperCase().replace(/ /g, "_");
-  return PEER_CERT_REJECTION_ALERTS.some((alert) => text.includes(alert));
 };
 
 // A remote client dropping or stalling its connection. Matched by syscall and
