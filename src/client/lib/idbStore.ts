@@ -70,17 +70,27 @@ class QueryCacheStore {
     });
   };
 
+  /**
+   * The browser can close a connection at any time, and the cached handle then
+   * throws on every call. Reopens once, then resolves null so callers fail soft.
+   */
+  private openStore = async (mode: IDBTransactionMode): Promise<IDBObjectStore | null> => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const database = await this.init();
+        return database.transaction(STORE, mode).objectStore(STORE);
+      } catch {
+        this.db = null;
+      }
+    }
+    return null;
+  };
+
   getAll = async (): Promise<CachedQuery[]> => {
     if (!this.available) return [];
-    let database: IDBDatabase;
-    try {
-      database = await this.init();
-    } catch {
-      return [];
-    }
+    const store = await this.openStore("readonly");
+    if (!store) return [];
     return new Promise<CachedQuery[]>((resolve) => {
-      const transaction = database.transaction(STORE, "readonly");
-      const store = transaction.objectStore(STORE);
       const request = store.getAll();
       request.onerror = () => resolve([]);
       request.onsuccess = () => resolve(request.result as CachedQuery[]);
@@ -89,15 +99,9 @@ class QueryCacheStore {
 
   put = async (entry: CachedQuery): Promise<void> => {
     if (!this.available) return;
-    let database: IDBDatabase;
-    try {
-      database = await this.init();
-    } catch {
-      return;
-    }
+    const store = await this.openStore("readwrite");
+    if (!store) return;
     return new Promise<void>((resolve) => {
-      const transaction = database.transaction(STORE, "readwrite");
-      const store = transaction.objectStore(STORE);
       const request = store.put(entry);
       request.onerror = () => {
         console.error("IndexedDB write failed", request.error);
@@ -109,15 +113,9 @@ class QueryCacheStore {
 
   delete = async (key: string): Promise<void> => {
     if (!this.available) return;
-    let database: IDBDatabase;
-    try {
-      database = await this.init();
-    } catch {
-      return;
-    }
+    const store = await this.openStore("readwrite");
+    if (!store) return;
     return new Promise<void>((resolve) => {
-      const transaction = database.transaction(STORE, "readwrite");
-      const store = transaction.objectStore(STORE);
       const request = store.delete(key);
       // fail soft — a failed eviction just leaves a stale entry
       request.onerror = () => resolve();
@@ -127,15 +125,9 @@ class QueryCacheStore {
 
   clear = async (): Promise<void> => {
     if (!this.available) return;
-    let database: IDBDatabase;
-    try {
-      database = await this.init();
-    } catch {
-      return;
-    }
+    const store = await this.openStore("readwrite");
+    if (!store) return;
     return new Promise<void>((resolve) => {
-      const transaction = database.transaction(STORE, "readwrite");
-      const store = transaction.objectStore(STORE);
       const request = store.clear();
       request.onerror = () => resolve();
       request.onsuccess = () => resolve();
