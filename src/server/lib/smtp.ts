@@ -84,6 +84,15 @@ const isPeerDropError = (err: Error): boolean => {
   return PEER_DROP_SYSCALL_ERRORS.has(`${syscall} ${code}`);
 };
 
+// Handshake failures carry the peer in meta; session errors set it on the error.
+const peerAddress = (err: Error): string | undefined => {
+  const { meta, remoteAddress } = err as Error & {
+    meta?: { remoteAddress?: string };
+    remoteAddress?: string;
+  };
+  return meta?.remoteAddress ?? remoteAddress;
+};
+
 const registerListeners = (
   server: SmtpServer,
   port: number,
@@ -143,10 +152,12 @@ const registerListeners = (
       logger.warn(`SMTP Server(${port}) Error`, {}, err);
       return;
     }
-    logger.error(`SMTP Server(${port}) Error`, {}, err);
+    const remoteAddress = peerAddress(err);
+    const remoteLine = remoteAddress ? `**Remote:** ${remoteAddress}\n` : "";
+    logger.error(`SMTP Server(${port}) Error`, { remoteAddress }, err);
     sendAlarm(
       "SMTP Server Error",
-      `**Port:** ${port}\n**Error:** ${String(err)}`
+      `**Port:** ${port}\n${remoteLine}**Error:** ${String(err)}`
     ).catch(() => undefined);
   });
 

@@ -10,6 +10,7 @@ import * as authRateLimit from "./auth-rate-limit";
 import { MAX_MESSAGE_BYTES } from "./message-size";
 import { restoreLeaves } from "test-helpers";
 import { logger } from "./logger";
+import { resetAlarmState } from "./alarm";
 
 // Mock dependencies before importing project code (Bun requirement)
 const mockGetUser = mock(() => Promise.resolve(null));
@@ -2367,6 +2368,65 @@ describe("registerListeners error handler", () => {
 
     expect(smtpServerLines(mockLogger.error).length).toBe(4);
     expect(smtpServerLines(mockLogger.warn).length).toBe(1);
+  });
+
+  describe("peer address", () => {
+    const pagedDetails = (emit: () => void) => {
+      process.env.DISCORD_ALARM_WEBHOOK = "https://alarm.invalid/webhook";
+      resetAlarmState();
+      const fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(new Response(null));
+      try {
+        emit();
+        return fetchSpy.mock.calls.map(
+          ([, init]) => JSON.parse(String(init?.body)).embeds[0].description as string
+        );
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    };
+
+    const certRejection = (peer: object) =>
+      Object.assign(boringSslError("SSLV3_ALERT_BAD_CERTIFICATE"), peer);
+
+    it("names the peer of a certificate rejected during the implicit-TLS handshake", async () => {
+      const { implicitTls } = await bootWithTls();
+      const meta = { protocol: "smtp", stage: "connect", remoteAddress: "203.0.113.7" };
+      const details = pagedDetails(() => implicitTls.emit("error", certRejection({ meta })));
+
+      expect(details.length).toBe(1);
+      expect(details[0]).toContain("**Remote:** 203.0.113.7\n");
+      expect(mockLogger.error.mock.calls[0]![1]).toEqual({ remoteAddress: "203.0.113.7" });
+    });
+
+    it("names the peer of an error raised inside a session", async () => {
+      const server = await bootSingleServer();
+      const failure = Object.assign(new Error("unexpected internal failure"), {
+        remoteAddress: "203.0.113.8"
+      });
+      const details = pagedDetails(() => server.emit("error", failure));
+
+      expect(details[0]).toContain("**Remote:** 203.0.113.8\n");
+      expect(mockLogger.error.mock.calls[0]![1]).toEqual({ remoteAddress: "203.0.113.8" });
+    });
+
+    it("leaves the line out when the error has no peer", async () => {
+      const server = await bootSingleServer();
+      const details = pagedDetails(() => server.emit("error", new Error("listen EADDRINUSE")));
+
+      expect(details.length).toBe(1);
+      expect(details[0]).not.toContain("Remote");
+    });
+
+    it("keeps the peer out of suppressed warnings", async () => {
+      const { implicitTls } = await bootWithTls();
+      const meta = { protocol: "smtp", stage: "connect", remoteAddress: "203.0.113.9" };
+      const details = pagedDetails(() =>
+        implicitTls.emit("error", Object.assign(boringSslError("NO_SHARED_CIPHER"), { meta }))
+      );
+
+      expect(details).toEqual([]);
+      expect(mockLogger.warn.mock.calls.at(-1)![1]).toEqual({});
+    });
   });
 
   it("logs error on non-suppressible failures", async () => {

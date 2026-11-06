@@ -957,7 +957,11 @@ export class ImapRequestHandler {
 
     socket.on("error", (error) => {
       if (!(error as Error).message?.includes("ECONNRESET")) {
-        logger.error("IMAP socket error", { component: "imap" }, error);
+        logger.error(
+          "IMAP socket error",
+          { component: "imap", remote: `${socket.remoteAddress ?? "?"}:${socket.remotePort ?? 0}` },
+          error
+        );
       }
       if (!socket.destroyed) {
         socket.destroy();
