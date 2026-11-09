@@ -411,11 +411,21 @@ describe("Settings page (real App behavior)", () => {
             body: { id: "user-1", email: "maple@example.com", username: "maple" }
           }
         : { status: "success" }) as typeof call.post;
+    // The signature and default From belong to the user who set them.
+    window.localStorage.setItem("signature", JSON.stringify("Maple"));
+    window.localStorage.setItem(
+      "defaultFrom",
+      JSON.stringify("maple@example.com")
+    );
     const mount = await mountApp();
     try {
       await mount.waitFor(() => mount.mailCards()[0] ?? null);
       await mount.click(await settingsItem(mount));
       await mount.waitFor(() => mount.container.querySelector(".settings"));
+      expect(
+        (mount.container.querySelector("#settings-signature") as HTMLTextAreaElement)
+          .value
+      ).toBe("Maple");
 
       await mount.click(
         await mount.waitFor(() =>
@@ -447,6 +457,18 @@ describe("Settings page (real App behavior)", () => {
       }
       expect(mount.mailCards().length).toBeGreaterThan(0);
       expect(mount.container.querySelector(".settings")).toBeNull();
+      expect(stored("signature") ?? "").toBe("");
+      expect(stored("defaultFrom") ?? "").toBe("");
+      await mount.click(await settingsItem(mount));
+      await mount.waitFor(() => mount.container.querySelector(".settings"));
+      expect(
+        (mount.container.querySelector("#settings-signature") as HTMLTextAreaElement)
+          .value
+      ).toBe("");
+      expect(
+        (mount.container.querySelector("#settings-default-from") as HTMLSelectElement)
+          .value
+      ).toBe("");
     } finally {
       window.confirm = originalConfirm;
       globalThis.fetch = originalFetch;

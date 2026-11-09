@@ -258,6 +258,8 @@ const App = ({ user: session }: Props) => {
       setSelectedCategory(Category.AllMails);
       setIsWriterOpen(false);
       setIsSettingsOpen(false);
+      setSignature("");
+      setDefaultFrom("");
       setIsAccountsOpen(window.innerWidth > 1050);
       setReplyData({});
       setNewMailsTotal(0);
@@ -271,6 +273,8 @@ const App = ({ user: session }: Props) => {
     setSelectedCategory,
     setIsWriterOpen,
     setIsAccountsOpen,
+    setSignature,
+    setDefaultFrom,
     setReplyData,
     setNewMailsTotal
   ]);

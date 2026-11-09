@@ -215,7 +215,7 @@ const Writer = () => {
   ]);
 
   // The rail Compose button's draft dot (design doc §7): a draft is any
-  // filled field, editor text, or an attached quote — but only user input
+  // filled field, editor text, or a reply or forward — but only user input
   // counts. The From pre-fill writes the pre-filled mailbox's name/sender,
   // so those values alone must not light the dot.
   useEffect(() => {
@@ -228,7 +228,7 @@ const Writer = () => {
         subject,
         sender,
         initialContent,
-        hasQuote: !!originalMessageMeta.id,
+        isReply: !!(originalMessageMeta.id || originalMessageMeta.messageId),
         prefilledName: displayNameFor(prefillAccount),
         prefilledSender: prefillAccount.split("@")[0] || ""
       })
@@ -242,6 +242,7 @@ const Writer = () => {
     sender,
     initialContent,
     originalMessageMeta.id,
+    originalMessageMeta.messageId,
     prefillAccount,
     setHasDraft
   ]);
@@ -256,6 +257,12 @@ const Writer = () => {
 
   useEffect(() => {
     if (replyData.id && replyData.messageId && setReplyData && isWriterOpen) {
+      // A name still holding the default-From pre-fill would sign the reply
+      // with another mailbox's name; the default only names new messages.
+      if (!selectedMailbox && defaultFrom) {
+        const defaultName = displayNameFor(defaultFrom);
+        setName((current) => (current === defaultName ? "" : current));
+      }
       setSender(replyData.to?.address?.split("@")[0] || "");
       setTo(replyData.from?.value?.[0]?.address || "");
       setCc(replyData.cc?.value?.map((e) => e.address).join(", ") || "");
@@ -309,7 +316,10 @@ const Writer = () => {
     setEditorContent,
     setIsCcOpen,
     setIsBccOpen,
-    includeOriginal
+    includeOriginal,
+    selectedMailbox,
+    defaultFrom,
+    setName
   ]);
 
   const sendMail = (data: FormData) => {

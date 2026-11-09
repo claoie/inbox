@@ -47,7 +47,7 @@ const mountWriter = async (overrides: Record<string, unknown> = {}) => {
     defaultOptions: { queries: { retry: false } }
   });
 
-  const contextValue = {
+  const contextValue: Record<string, unknown> = {
     domainName: "example.com",
     isWriterOpen: true,
     setIsWriterOpen: () => {},
@@ -74,7 +74,8 @@ const mountWriter = async (overrides: Record<string, unknown> = {}) => {
           { client: queryClient },
           createElement(
             Context.Provider,
-            { value: contextValue as never },
+            // A fresh object per render, so a changed field reaches the Writer.
+            { value: { ...contextValue } as never },
             createElement(Writer)
           )
         )
@@ -88,6 +89,11 @@ const mountWriter = async (overrides: Record<string, unknown> = {}) => {
     container,
     editor: () => editor as unknown as EditorInstance,
     rerender: render,
+    /** Changes context fields and re-renders, like the app updating state. */
+    update: async (fields: Record<string, unknown>) => {
+      Object.assign(contextValue, fields);
+      await render();
+    },
     teardown: async () => {
       await act(async () => root.unmount());
       container.remove();
@@ -463,6 +469,44 @@ describe("Writer compose settings", () => {
     }
   });
 
+  it("drops a default-From name left from a closed compose when replying", async () => {
+    const { Category } = await import("client");
+    const mount = await mountWriter({
+      selectedAccount: "",
+      selectedCategory: Category.Search,
+      defaultFrom: "billing@example.com"
+    });
+    try {
+      expect(inputByPlaceholder(mount.container, "name").value).toBe("billing");
+      // Closed without Discard: the pre-filled From stays in the form.
+      await mount.update({ isWriterOpen: false });
+      await mount.update({ isWriterOpen: true, replyData: reply });
+      expect(inputByPlaceholder(mount.container, "name").value).toBe("");
+      expect(inputByPlaceholder(mount.container, "account").value).toBe("maple");
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("keeps a name the user typed when replying", async () => {
+    const { Category } = await import("client");
+    const mount = await mountWriter({
+      selectedAccount: "",
+      selectedCategory: Category.Search,
+      defaultFrom: "billing@example.com"
+    });
+    try {
+      await mount.act(async () => {
+        setInputValue(inputByPlaceholder(mount.container, "name"), "Maple Lee");
+      });
+      await mount.update({ isWriterOpen: false });
+      await mount.update({ isWriterOpen: true, replyData: reply });
+      expect(inputByPlaceholder(mount.container, "name").value).toBe("Maple Lee");
+    } finally {
+      await mount.teardown();
+    }
+  });
+
   it("leaves the default From out of a reply", async () => {
     const { Category } = await import("client");
     const { container, teardown } = await mountWriter({
@@ -489,7 +533,9 @@ describe("Writer compose settings", () => {
       const posted = await send(mount);
       expect(posted).not.toBeNull();
       expect(posted!.get("inReplyTo")).toBe("<abc@host>");
-      expect(String(posted!.get("html"))).not.toContain("quoted body");
+      const html = String(posted!.get("html"));
+      expect(html).not.toContain("quoted body");
+      expect(html).not.toContain("wrote:");
     } finally {
       await mount.teardown();
     }
@@ -518,9 +564,44 @@ describe("Writer compose settings", () => {
     }
   });
 
+  it("keeps a reply without its quote a draft after its fields are cleared", async () => {
+    const setHasDraftCalls: unknown[] = [];
+    // From is the selected mailbox's pre-fill, so only the reply itself can
+    // keep the dot on once To and Subject are cleared.
+    const mount = await mountWriter({
+      selectedAccount: "maple@example.com",
+      replyData: reply,
+      includeOriginal: false,
+      setHasDraft: (v: unknown) => {
+        setHasDraftCalls.push(v);
+      }
+    });
+    try {
+      await mount.act(async () => {
+        setInputValue(
+          inputByPlaceholder(mount.container, "to-1@email.com, to-2@email.com"),
+          ""
+        );
+        setInputValue(
+          inputByPlaceholder(mount.container, "This is the mail subject"),
+          ""
+        );
+      });
+      await mount.act(async () => {});
+      // Still threads as a reply, so it is still a draft until Discard.
+      expect(setHasDraftCalls[setHasDraftCalls.length - 1]).toBe(true);
+      await mount.act(async () => {
+        buttonByText(mount.container, "Discard").click();
+      });
+      expect(setHasDraftCalls[setHasDraftCalls.length - 1]).toBe(false);
+    } finally {
+      await mount.teardown();
+    }
+  });
+
   it("shows the signature under the editor and sends it after the message", async () => {
     const mount = await mountWriter({
-      replyData: reply,
+      replyData: { ...reply, insight: { suggested_reply: "Thanks, see you then" } },
       signature: "Maple\n<maple@example.com>"
     });
     try {
@@ -532,7 +613,8 @@ describe("Writer compose settings", () => {
       const signatureAt = html.indexOf(
         "<p>Maple<br>&lt;maple@example.com&gt;</p>"
       );
-      expect(signatureAt).toBeGreaterThan(-1);
+      expect(html.indexOf("Thanks, see you then")).toBeGreaterThan(-1);
+      expect(html.indexOf("Thanks, see you then")).toBeLessThan(signatureAt);
       expect(signatureAt).toBeLessThan(html.indexOf("quoted body"));
     } finally {
       await mount.teardown();

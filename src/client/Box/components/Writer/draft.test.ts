@@ -9,7 +9,7 @@ const empty: DraftFields = {
   subject: "",
   sender: "",
   initialContent: "",
-  hasQuote: false
+  isReply: false
 };
 
 describe("editorHtmlHasText", () => {
@@ -43,8 +43,8 @@ describe("hasDraftFields", () => {
     expect(hasDraftFields({ ...empty, initialContent: "<p></p>" })).toBe(false);
   });
 
-  it("is true when a quote is attached, even with empty fields", () => {
-    expect(hasDraftFields({ ...empty, hasQuote: true })).toBe(true);
+  it("is true for a reply or forward, even with empty fields", () => {
+    expect(hasDraftFields({ ...empty, isReply: true })).toBe(true);
   });
 
   it("ignores name/sender that still equal the pre-filled values", () => {

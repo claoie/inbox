@@ -12,10 +12,14 @@ export interface DraftFields {
   sender: string;
   /** The editor's HTML (`initialContent`). */
   initialContent: string;
-  /** Whether a quoted original is attached to the draft. */
-  hasQuote: boolean;
   /**
-   * Values the program pre-filled for From (the selected mailbox).
+   * Whether the draft answers or forwards another message, quoted or not:
+   * it carries that message's id for threading even when no quote shows.
+   */
+  isReply: boolean;
+  /**
+   * Values the program pre-filled for From (the selected mailbox, or the
+   * default From when none is selected).
    * A name/sender that still equals its pre-filled value is not user
    * input, so opening a fresh compose leaves the draft dot off.
    */
@@ -37,7 +41,7 @@ const hasUserInput = (value: string, prefilled?: string): boolean =>
   value.trim().length > 0 && value !== prefilled;
 
 export const hasDraftFields = (fields: DraftFields): boolean =>
-  fields.hasQuote ||
+  fields.isReply ||
   hasUserInput(fields.name, fields.prefilledName) ||
   hasUserInput(fields.sender, fields.prefilledSender) ||
   [fields.to, fields.cc, fields.bcc, fields.subject].some(
