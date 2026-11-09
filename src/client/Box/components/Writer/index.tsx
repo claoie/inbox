@@ -481,7 +481,7 @@ const Writer = () => {
           <span className="cc-bcc-toggles">
             <button
               type="button"
-              className={isCcOpen ? "active" : ""}
+              className={"small-button" + (isCcOpen ? " active" : "")}
               aria-pressed={isCcOpen}
               onClick={onClickCc}
             >
@@ -489,7 +489,7 @@ const Writer = () => {
             </button>
             <button
               type="button"
-              className={isBccOpen ? "active" : ""}
+              className={"small-button" + (isBccOpen ? " active" : "")}
               aria-pressed={isBccOpen}
               onClick={onClickBcc}
             >
@@ -549,7 +549,7 @@ const Writer = () => {
         >
           <button
             type="button"
-            className={formatState.bold ? "active" : ""}
+            className={"small-button" + (formatState.bold ? " active" : "")}
             aria-pressed={formatState.bold}
             aria-label="Bold"
             title="Bold"
@@ -560,7 +560,7 @@ const Writer = () => {
           </button>
           <button
             type="button"
-            className={formatState.italic ? "active" : ""}
+            className={"small-button" + (formatState.italic ? " active" : "")}
             aria-pressed={formatState.italic}
             aria-label="Italic"
             title="Italic"
@@ -571,7 +571,7 @@ const Writer = () => {
           </button>
           <button
             type="button"
-            className={formatState.bulletList ? "active" : ""}
+            className={"small-button" + (formatState.bulletList ? " active" : "")}
             aria-pressed={formatState.bulletList}
             aria-label="Bulleted list"
             title="Bulleted list"
@@ -582,7 +582,7 @@ const Writer = () => {
           </button>
           <button
             type="button"
-            className={formatState.blockquote ? "active" : ""}
+            className={"small-button" + (formatState.blockquote ? " active" : "")}
             aria-pressed={formatState.blockquote}
             aria-label="Quote"
             title="Quote"
@@ -616,7 +616,7 @@ const Writer = () => {
                     <div className="suffix">{originalMessage.prefix}</div>
                     <button
                       type="button"
-                      className="quote-remove"
+                      className="small-button quote-remove"
                       aria-label="Remove quote"
                       title="Remove quote"
                       onClick={onClickRemoveQuote}

@@ -50,59 +50,19 @@
     height: 20px;
   }
 
-  /* Labeled Cc/Bcc toggles next to To (design doc §7): the 24px toggle
-   * pattern from the list density control, with a visible pressed state. */
+  /* Labeled Cc/Bcc toggles next to To (design doc §7), with a visible
+   * pressed state. */
   .cc-bcc-toggles {
     display: flex;
     gap: 2px;
-
-    button {
-      height: 24px;
-      padding: 0 8px;
-      font-size: 13px;
-      border-radius: 3px;
-      background: transparent;
-      color: var(--textDim);
-      border: none;
-      cursor: pointer;
-
-      &:hover {
-        background-color: var(--surface);
-      }
-
-      &.active {
-        background-color: var(--surfaceRaised);
-        color: var(--textBright);
-      }
-    }
   }
 
-  /* Formatting toolbar above the editor (design doc §7): the same 24px
-   * toggle pattern; pressed state follows the selection. */
+  /* Formatting toolbar above the editor (design doc §7); the pressed
+   * state follows the selection. */
   .format-toolbar {
     display: flex;
     gap: 2px;
     margin-bottom: 0.3rem;
-
-    button {
-      height: 24px;
-      padding: 0 8px;
-      font-size: 13px;
-      border-radius: 3px;
-      background: transparent;
-      color: var(--textDim);
-      border: none;
-      cursor: pointer;
-
-      &:hover {
-        background-color: var(--surface);
-      }
-
-      &.active {
-        background-color: var(--surfaceRaised);
-        color: var(--textBright);
-      }
-    }
   }
 
   .helper-text {
@@ -176,18 +136,14 @@
               gap: 0.5rem;
             }
 
+            /* Restates the shared button colours, which the quote's rule
+             * for every element inside it would otherwise override. */
             .quote-remove {
               flex-shrink: 0;
-              height: 24px;
-              padding: 0 8px;
-              font-size: 13px;
-              border-radius: 3px;
               background: transparent;
               color: var(--textDim);
-              border: none;
-              cursor: pointer;
 
-              &:hover {
+              &:not(:disabled):hover {
                 background-color: var(--surface);
                 color: var(--textBright);
               }

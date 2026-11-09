@@ -597,7 +597,7 @@ const Accounts = ({
               {accountFilter ? (
                 <button
                   type="button"
-                  className="filter_clear"
+                  className="clear-button"
                   aria-label="Clear filter"
                   onClick={() => setAccountFilter("")}
                 >

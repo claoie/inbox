@@ -93,7 +93,7 @@ const SearchBox = () => {
         {term ? (
           <button
             type="button"
-            className="search_clear"
+            className="clear-button"
             aria-label="Clear search"
             onClick={onClickClear}
           >

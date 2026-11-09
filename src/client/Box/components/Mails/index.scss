@@ -58,22 +58,6 @@
         min-width: 0;
         height: 24px;
       }
-
-      .search_clear {
-        flex-shrink: 0;
-        height: 24px;
-        min-width: 24px;
-        padding: 0;
-        font-size: 16px;
-        line-height: 1;
-        color: var(--textDim);
-        background: transparent;
-
-        &:hover {
-          color: var(--textBright);
-          background-color: var(--surface);
-        }
-      }
     }
   }
 

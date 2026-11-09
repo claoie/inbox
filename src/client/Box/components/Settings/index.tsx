@@ -30,7 +30,7 @@ const Settings = () => {
               <button
                 key={value}
                 type="button"
-                className={density === value ? "active" : ""}
+                className={"small-button" + (density === value ? " active" : "")}
                 aria-pressed={density === value}
                 onClick={() => setDensity(value)}
               >

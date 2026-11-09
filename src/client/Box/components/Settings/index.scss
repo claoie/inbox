@@ -43,25 +43,5 @@
     display: flex;
     flex-shrink: 0;
     gap: 2px;
-
-    button {
-      height: 24px;
-      padding: 0 8px;
-      font-size: 13px;
-      border-radius: 3px;
-      background: transparent;
-      color: var(--textDim);
-      border: none;
-      cursor: pointer;
-
-      &:hover {
-        background-color: var(--surface);
-      }
-
-      &.active {
-        background-color: var(--surfaceRaised);
-        color: var(--textBright);
-      }
-    }
   }
 }
