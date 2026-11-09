@@ -87,6 +87,7 @@ afterEach(() => {
 type MountOptions = {
   width?: number;
   writerOpen?: boolean;
+  settingsOpen?: boolean;
   accountsOpen?: boolean;
   category?: Category;
   selectedAccount?: string;
@@ -96,6 +97,7 @@ const mountAccounts = async (options: MountOptions = {}) => {
   const {
     width = 1920,
     writerOpen = false,
+    settingsOpen = false,
     accountsOpen = true,
     category = Category.AllMails,
     selectedAccount = ""
@@ -114,6 +116,7 @@ const mountAccounts = async (options: MountOptions = {}) => {
   // The setters are recorded, not stubbed away: the fix under test is
   // exactly which setters `onClickCategory` calls.
   const writerOpenCalls: boolean[] = [];
+  const settingsOpenCalls: boolean[] = [];
   const accountsOpenCalls: boolean[] = [];
   const categoryCalls: Category[] = [];
   const selectedAccountCalls: string[] = [];
@@ -132,6 +135,10 @@ const mountAccounts = async (options: MountOptions = {}) => {
     isWriterOpen: writerOpen,
     setIsWriterOpen: (value: boolean) => {
       writerOpenCalls.push(value);
+    },
+    isSettingsOpen: settingsOpen,
+    setIsSettingsOpen: (value: boolean) => {
+      settingsOpenCalls.push(value);
     },
     replyData: {},
     setReplyData: () => {},
@@ -238,10 +245,12 @@ const mountAccounts = async (options: MountOptions = {}) => {
   return {
     container,
     writerOpenCalls,
+    settingsOpenCalls,
     accountsOpenCalls,
     categoryCalls,
     selectedAccountCalls,
     enterSearchCalls,
+    waitForRail,
     clickRailItem,
     clickAccountRow,
     teardown: async () => {
@@ -272,6 +281,93 @@ describe("Writer closes on navigation", () => {
     try {
       await clickRailItem("Saved");
       expect(writerOpenCalls).not.toContain(true);
+    } finally {
+      await teardown();
+    }
+  });
+});
+
+describe("Settings page", () => {
+  it("the rail's Settings item opens the page, and tapping it again closes it", async () => {
+    const opened = await mountAccounts({ settingsOpen: false });
+    try {
+      await opened.clickRailItem("Settings");
+      expect(opened.settingsOpenCalls).toEqual([true]);
+    } finally {
+      await opened.teardown();
+    }
+    const closed = await mountAccounts({ settingsOpen: true });
+    try {
+      await closed.clickRailItem("Settings");
+      expect(closed.settingsOpenCalls).toEqual([false]);
+    } finally {
+      await closed.teardown();
+    }
+  });
+
+  it("highlights Settings, not the folder, while the page is open", async () => {
+    const { container, waitForRail, teardown } = await mountAccounts({
+      settingsOpen: true,
+      category: Category.SavedMails
+    });
+    try {
+      await waitForRail();
+      const clicked = Array.from(
+        container.querySelectorAll(".categories .rail-item.clicked")
+      ).map((el) => el.textContent);
+      expect(clicked).toEqual(["Settings"]);
+    } finally {
+      await teardown();
+    }
+  });
+
+  it("tapping a folder closes the page", async () => {
+    const { settingsOpenCalls, categoryCalls, clickRailItem, teardown } =
+      await mountAccounts({ settingsOpen: true });
+    try {
+      await clickRailItem("Saved");
+      expect(categoryCalls).toEqual([Category.SavedMails]);
+      expect(settingsOpenCalls).toEqual([false]);
+    } finally {
+      await teardown();
+    }
+  });
+
+  it("tapping the selected account closes the page", async () => {
+    const { settingsOpenCalls, selectedAccountCalls, clickAccountRow, teardown } =
+      await mountAccounts({
+        settingsOpen: true,
+        selectedAccount: "maple@example.com"
+      });
+    try {
+      await clickAccountRow("maple");
+      expect(settingsOpenCalls).toEqual([false]);
+      expect(selectedAccountCalls).toEqual([]);
+    } finally {
+      await teardown();
+    }
+  });
+
+  it("opening it at 390px closes the accounts overlay that covers the page", async () => {
+    const { settingsOpenCalls, accountsOpenCalls, clickRailItem, teardown } =
+      await mountAccounts({ width: 390, accountsOpen: true });
+    try {
+      await clickRailItem("Settings");
+      expect(settingsOpenCalls).toEqual([true]);
+      expect(accountsOpenCalls).toEqual([false]);
+    } finally {
+      await teardown();
+    }
+  });
+
+  it("opening it at 1920px leaves the accounts column alone", async () => {
+    const { accountsOpenCalls, clickRailItem, teardown } = await mountAccounts({
+      width: 1920,
+      accountsOpen: true
+    });
+    try {
+      await clickRailItem("Settings");
+      expect(accountsOpenCalls).toEqual([]);
     } finally {
       await teardown();
     }

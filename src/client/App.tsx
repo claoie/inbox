@@ -57,6 +57,9 @@ export interface ContextType {
   setIsAccountsOpen: Dispatch<SetStateAction<ContextType["isAccountsOpen"]>>;
   isWriterOpen: boolean;
   setIsWriterOpen: Dispatch<SetStateAction<ContextType["isWriterOpen"]>>;
+  /** Whether the center column shows the Settings page instead of the list. */
+  isSettingsOpen: boolean;
+  setIsSettingsOpen: Dispatch<SetStateAction<ContextType["isSettingsOpen"]>>;
   replyData: ReplyData;
   setReplyData: Dispatch<SetStateAction<ContextType["replyData"]>>;
   selectedAccount: string;
@@ -123,6 +126,7 @@ const App = ({ user: session }: Props) => {
     "isWriterOpen",
     false
   );
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [replyData, setReplyData] = useState({});
   const [selectedAccount, setSelectedAccount] = useLocalStorage(
     "selectedAccount",
@@ -157,6 +161,7 @@ const App = ({ user: session }: Props) => {
     // Navigating closes the writer: the writer docks over the list, so
     // leaving it open would hide the view the tap just switched to.
     setIsWriterOpen(false);
+    setIsSettingsOpen(false);
     // Re-entering while already searching must not re-park: the live term
     // sits in selectedAccount, so parking again would store the term as
     // the pre-search account and clear would restore search itself.
@@ -266,6 +271,8 @@ const App = ({ user: session }: Props) => {
     setIsAccountsOpen,
     isWriterOpen,
     setIsWriterOpen,
+    isSettingsOpen,
+    setIsSettingsOpen,
     replyData,
     setReplyData,
     selectedAccount,

@@ -9,5 +9,4 @@ export { default as NewMailIcon } from "./NewMailIcon";
 export { default as FoldersIcon } from "./FoldersIcon";
 export { default as SortDownIcon } from "./SortDownIcon";
 export { default as SortUpIcon } from "./SortUpIcon";
-export { default as Allowlist } from "./Allowlist";
 export { default as FoldersSheet } from "./FoldersSheet";

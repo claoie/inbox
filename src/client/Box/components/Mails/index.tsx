@@ -91,38 +91,12 @@ export class MailsCache extends QueryCache<MailHeaderData[]> {
 }
 
 // List header (design doc §5): the current folder with the selected
-// account's count from the accounts buckets, plus the density toggle. The
-// count is per-account — the same doc_count / unread_doc_count the sidebar
-// already carries — not the loaded page size.
-const ListHeader = ({
-  countLabel,
-  density,
-  setDensity
-}: {
-  countLabel: string;
-  density: Density;
-  setDensity: Dispatch<SetStateAction<Density>>;
-}) => (
+// account's count from the accounts buckets. The count is per-account — the
+// same doc_count / unread_doc_count the sidebar already carries — not the
+// loaded page size.
+const ListHeader = ({ countLabel }: { countLabel: string }) => (
   <div className="list-header">
     <div className="list-header-count">{countLabel}</div>
-    <div className="density-toggle" role="group" aria-label="List density">
-      <button
-        type="button"
-        className={density === "comfortable" ? "active" : ""}
-        aria-pressed={density === "comfortable"}
-        onClick={() => setDensity("comfortable")}
-      >
-        Comfortable
-      </button>
-      <button
-        type="button"
-        className={density === "compact" ? "active" : ""}
-        aria-pressed={density === "compact"}
-        onClick={() => setDensity("compact")}
-      >
-        Compact
-      </button>
-    </div>
   </div>
 );
 
@@ -198,18 +172,18 @@ const RenderedMail = ({
 
   // Esc collapses the open message (design doc §6). The writer owns Esc
   // while it is open, typing in a field keeps its own Esc, and an open
-  // dialog overlay (allowlist, Folders sheet) owns Esc too, so all three
+  // dialog overlay (the Folders sheet) owns Esc too, so all three
   // skip this handler.
   useEffect(() => {
     if (!isActive) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (isWriterOpen) return;
-      // A dialog overlay owns Esc while it is open — the allowlist dialog
-      // and the Folders sheet each register their own window-level Escape
-      // handler. Without this, one press closes the dialog and collapses
-      // the message behind it. Dialogs are only mounted while open, so
-      // presence in the document means one is open.
+      // A dialog overlay owns Esc while it is open — the Folders sheet
+      // registers its own window-level Escape handler. Without this, one
+      // press closes the dialog and collapses the message behind it.
+      // Dialogs are only mounted while open, so presence in the document
+      // means one is open.
       if (document.querySelector('[role="dialog"]')) return;
       const target = e.target as HTMLElement | null;
       if (
@@ -736,8 +710,7 @@ const RenderedMails = ({
     selectedAccount: contextAccount,
     selectedCategory: contextCategory,
     domainName,
-    density,
-    setDensity
+    density
   } = useContext(Context);
   const selectedAccount = accountProp ?? contextAccount;
   const selectedCategory = categoryProp ?? contextCategory;
@@ -963,13 +936,7 @@ const RenderedMails = ({
         : accountCount
           ? `${selectedCategory} · ${accountCount.count} ${accountCount.noun}`
           : selectedCategory;
-    const listHeader = (
-      <ListHeader
-        countLabel={countLabel}
-        density={density}
-        setDensity={setDensity}
-      />
-    );
+    const listHeader = <ListHeader countLabel={countLabel} />;
 
     const result = pagedMails.map((mail, i) => {
       return (

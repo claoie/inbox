@@ -296,11 +296,10 @@ describe("reading view — close control", () => {
 
   it("keeps the message open on Escape while a dialog overlay is open", async () => {
     const mount = await mountMails();
-    // Stand-in for the allowlist dialog / Folders sheet: a role="dialog"
-    // overlay with its own unconditional window-level Escape handler,
-    // like the real dialogs register. The dialog opens after the message,
-    // so its handler registers after the message's — one press must close
-    // the dialog only.
+    // Stand-in for the Folders sheet: a role="dialog" overlay with its own
+    // unconditional window-level Escape handler, like the real sheet
+    // registers. The dialog opens after the message, so its handler
+    // registers after the message's — one press must close the dialog only.
     const dialog = document.createElement("div");
     dialog.setAttribute("role", "dialog");
     const onDialogKeyDown = (e: KeyboardEvent) => {

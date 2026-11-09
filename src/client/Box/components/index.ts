@@ -8,6 +8,7 @@ import { MailsCache } from "./Mails";
 export const Writer = lazy(() => import("./Writer"));
 export const Mails = lazy(() => import("./Mails"));
 export const Accounts = lazy(() => import("./Accounts"));
+export const Settings = lazy(() => import("./Settings"));
 
 export { default as FileIcon } from "./FileIcon";
 

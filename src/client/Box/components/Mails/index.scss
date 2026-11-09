@@ -77,15 +77,10 @@
     }
   }
 
-  // List header (design doc §5): folder + selected account's count on the
-  // left, density toggle on the right. Not sticky — the toggle is a set-once
-  // preference (Settings will host it too), and a sticky row would fight the
-  // curtain/overlay stacking in this column.
+  // List header (design doc §5): folder + selected account's count. Not
+  // sticky — a sticky row would fight the curtain/overlay stacking in this
+  // column.
   .list-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
     padding: 10px 10px 8px;
     border-bottom: 1px solid var(--divider);
 
@@ -95,32 +90,6 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-    }
-
-    .density-toggle {
-      display: flex;
-      flex-shrink: 0;
-      gap: 2px;
-
-      button {
-        height: 24px;
-        padding: 0 8px;
-        font-size: 13px;
-        border-radius: 3px;
-        background: transparent;
-        color: var(--textDim);
-        border: none;
-        cursor: pointer;
-
-        &:hover {
-          background-color: var(--surface);
-        }
-
-        &.active {
-          background-color: var(--surfaceRaised);
-          color: var(--textBright);
-        }
-      }
     }
   }
 

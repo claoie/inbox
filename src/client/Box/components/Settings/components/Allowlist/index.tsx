@@ -1,5 +1,4 @@
-import { useEffect, useState, KeyboardEventHandler } from "react";
-import { createPortal } from "react-dom";
+import { useState, KeyboardEventHandler } from "react";
 import { useMutation, useQuery } from "react-query";
 
 import {
@@ -8,7 +7,7 @@ import {
   AllowlistAddBody,
   AllowlistDeleteResponse
 } from "server";
-import { call, onKeyboardActivate, queryClient, useIsOnline } from "client";
+import { call, queryClient, useIsOnline } from "client";
 import {
   ALLOWLIST_PATTERN_MAX_BYTES,
   exceedsAllowlistPatternBytes,
@@ -19,7 +18,7 @@ import "./index.scss";
 
 const queryUrl = "/api/mails/spam-allowlist";
 
-const Allowlist = ({ onClose }: { onClose: () => void }) => {
+const Allowlist = () => {
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -84,15 +83,6 @@ const Allowlist = ({ onClose }: { onClose: () => void }) => {
       }
     }
   );
-
-  // Close on Escape for keyboard users.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
 
   const handleAdd = () => {
     // Guard the shared handler, not just the button — the input's Enter key
@@ -174,68 +164,42 @@ const Allowlist = ({ onClose }: { onClose: () => void }) => {
     );
   };
 
-  return createPortal(
-    <div
-      className="allowlist-overlay"
-      role="presentation"
-      onClick={onClose}
-    >
-      <div
-        className="allowlist-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Spam allowlist"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="allowlist-header">
-          <h2>Allowlist</h2>
-          <button
-            className="icon-button"
-            aria-label="Close allowlist"
-            onClick={onClose}
-            onKeyDown={onKeyboardActivate(onClose)}
-          >
-            ×
-          </button>
-        </header>
+  return (
+    <div className="allowlist">
+      <p className="allowlist-hint">
+        Senders matching these patterns skip spam filtering when the message
+        also proves it came from them. A forged sender address is still
+        filtered normally.
+      </p>
 
-        <p className="allowlist-hint">
-          Senders matching these patterns skip spam filtering when the message
-          also proves it came from them. A forged sender address is still
-          filtered normally.
-        </p>
-
-        <div className="allowlist-add">
-          <input
-            autoFocus
-            type="text"
-            value={input}
-            maxLength={ALLOWLIST_PATTERN_MAX_BYTES}
-            placeholder="user@example.com or *@example.com"
-            aria-label="Allowlist pattern"
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onInputKeyDown}
-          />
-          <button
-            className="text-button"
-            onClick={handleAdd}
-            disabled={addMutation.isLoading || !input.trim() || !isOnline}
-            title={offlineTitle}
-          >
-            Add
-          </button>
-        </div>
-
-        {error ? (
-          <div className="allowlist-error" role="alert">
-            {error}
-          </div>
-        ) : null}
-
-        {renderBody()}
+      <div className="allowlist-add">
+        <input
+          type="text"
+          value={input}
+          maxLength={ALLOWLIST_PATTERN_MAX_BYTES}
+          placeholder="user@example.com or *@example.com"
+          aria-label="Allowlist pattern"
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={onInputKeyDown}
+        />
+        <button
+          className="text-button"
+          onClick={handleAdd}
+          disabled={addMutation.isLoading || !input.trim() || !isOnline}
+          title={offlineTitle}
+        >
+          Add
+        </button>
       </div>
-    </div>,
-    document.body
+
+      {error ? (
+        <div className="allowlist-error" role="alert">
+          {error}
+        </div>
+      ) : null}
+
+      {renderBody()}
+    </div>
   );
 };
 

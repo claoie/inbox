@@ -26,7 +26,7 @@ const folderIcons: Record<
 
 // The narrow-nav Folders sheet (design doc §4, option A): the five folders
 // with their unread counts, as a bottom sheet. Rendered through a portal
-// over everything (like the allowlist dialog) so it opens above the writer
+// over everything so it opens above the writer
 // pane while the writer is open — tapping a folder is navigation, so it
 // closes the writer like any folder tap does.
 const FoldersSheet = ({

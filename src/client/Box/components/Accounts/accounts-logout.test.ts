@@ -106,6 +106,8 @@ const mountAccounts = async (online = true, hasDraft = false) => {
     setIsAccountsOpen: () => {},
     isWriterOpen: false,
     setIsWriterOpen: () => {},
+    isSettingsOpen: false,
+    setIsSettingsOpen: () => {},
     replyData: {},
     setReplyData: () => {},
     selectedAccount: "",

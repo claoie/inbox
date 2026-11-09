@@ -1,5 +1,5 @@
 import { Suspense, useCallback, useContext, useRef, useState } from "react";
-import { Writer, Accounts, Mails } from "./components";
+import { Writer, Accounts, Mails, Settings } from "./components";
 import { Context } from "client";
 import "./index.scss";
 
@@ -16,7 +16,8 @@ const Box = () => {
     isAccountsOpen,
     setIsAccountsOpen,
     isWriterOpen,
-    setIsWriterOpen
+    setIsWriterOpen,
+    isSettingsOpen
   } = useContext(Context);
 
   const [page, setPage] = useState(1);
@@ -57,7 +58,11 @@ const Box = () => {
         />
         <div className="center-inner">
           <Suspense fallback={<></>}>
-            <Mails page={page} loadMoreIfShort={loadMoreNearBottom} />
+            {isSettingsOpen ? (
+              <Settings />
+            ) : (
+              <Mails page={page} loadMoreIfShort={loadMoreNearBottom} />
+            )}
           </Suspense>
         </div>
       </div>

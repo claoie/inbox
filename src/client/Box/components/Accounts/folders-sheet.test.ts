@@ -132,6 +132,8 @@ const mountAccounts = async (options: MountOptions = {}) => {
     setIsWriterOpen: (value: boolean) => {
       writerOpenCalls.push(value);
     },
+    isSettingsOpen: false,
+    setIsSettingsOpen: () => {},
     replyData: {},
     setReplyData: () => {},
     selectedAccount: selectedAccount,
