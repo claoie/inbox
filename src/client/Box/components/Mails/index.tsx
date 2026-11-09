@@ -713,10 +713,13 @@ interface ActiveMailMap {
 
 const RenderedMails = ({
   page,
+  loadMoreIfShort,
   account: accountProp,
   category: categoryProp
 }: {
   page: number;
+  /** Shows the next page when the rendered list doesn't fill the column. */
+  loadMoreIfShort: () => void;
   /**
    * The account and folder to list, defaulting to the selected ones. The
    * search pre-search state passes the parked account and folder here so
@@ -782,6 +785,18 @@ const RenderedMails = ({
   const query = useQuery<MailHeaderData[]>(queryUrl, getMails, {
     refetchOnMount: revalidateOnMountPolicy(queryUrl)
   });
+
+  const mailCount = Array.isArray(query.data) ? query.data.length : 0;
+  const pageSize = 4 + 8 * page;
+  const hasMore = mailCount > pageSize;
+  // A list shorter than the column never scrolls, so the scroll handler alone
+  // would never show the rest on a tall screen.
+  useEffect(() => {
+    if (!hasMore) return;
+    loadMoreIfShort();
+    window.addEventListener("resize", loadMoreIfShort);
+    return () => window.removeEventListener("resize", loadMoreIfShort);
+  }, [hasMore, pageSize, loadMoreIfShort]);
 
   if (query.isLoading) {
     return (
@@ -928,7 +943,7 @@ const RenderedMails = ({
         </div>
       ) : null;
     const mails = Array.isArray(query.data) ? query.data : [];
-    const pagedMails = mails.slice(0, 4 + 8 * page);
+    const pagedMails = mails.slice(0, pageSize);
 
     // Search shows the loaded result count; every folder shows the selected
     // account's count from the accounts buckets (null until they load, in
@@ -1022,7 +1037,13 @@ const RenderedMails = ({
   return <></>;
 };
 
-const Mails = ({ page }: { page: number }) => {
+const Mails = ({
+  page,
+  loadMoreIfShort
+}: {
+  page: number;
+  loadMoreIfShort: () => void;
+}) => {
   const { selectedAccount, selectedCategory, preSearchAccount, preSearchCategory } =
     useContext(Context);
   const inSearch = selectedCategory === Category.Search;
@@ -1037,6 +1058,7 @@ const Mails = ({ page }: { page: number }) => {
           <SearchBox />
           <RenderedMails
             page={page}
+            loadMoreIfShort={loadMoreIfShort}
             account={preSearchAccount.current}
             category={preSearchCategory.current}
           />
@@ -1049,11 +1071,11 @@ const Mails = ({ page }: { page: number }) => {
     return (
       <div className="mails_container">
         <SearchBox />
-        <RenderedMails page={page} />
+        <RenderedMails page={page} loadMoreIfShort={loadMoreIfShort} />
       </div>
     );
   }
-  return <RenderedMails page={page} />;
+  return <RenderedMails page={page} loadMoreIfShort={loadMoreIfShort} />;
 };
 
 export default Mails;
