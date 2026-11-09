@@ -109,24 +109,8 @@ input:not([type="checkbox"]) {
   background: rgba(255, 255, 255, 0.2);
 }
 
-#block-menu-container,
-#emoji-menu-container,
-.editor_container {
-  &:hover::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.2);
-  }
-}
-
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.7);
-}
-
-#block-menu-container,
-#emoji-menu-container,
-.editor_container {
-  &::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 0, 0, 0.7);
-  }
 }
 
 input::-webkit-scrollbar-thumb {
@@ -182,7 +166,6 @@ body,
 }
 
 .inputBox-flex,
-.search_container,
 .login_card {
   input {
     color: var(--textBright);
@@ -294,7 +277,6 @@ a:visited {
 }
 
 .inputBox-flex,
-.search_container,
 .login_card {
   input {
     font-size: 16px;

@@ -156,16 +156,6 @@
     }
   }
 
-  .mailBodyActions {
-    margin-bottom: 0.4rem;
-
-    .openInNewTab {
-      font-size: 14px;
-      padding: 0.3rem 0.6rem;
-      cursor: pointer;
-    }
-  }
-
   // Rows, not cards (design doc §5, budget TransactionRow pattern):
   // transparent rows separated by dividers, no card background, border, or
   // shadow. The red left border is gone — unread state is the dot + bold.
@@ -181,10 +171,6 @@
     // would indent every row (the .text body's own 8px margins win at (0,3,0)).
     > * {
       margin-left: 0;
-    }
-
-    &.shadow {
-      box-shadow: none;
     }
 
     &.active {

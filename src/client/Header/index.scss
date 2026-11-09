@@ -11,10 +11,6 @@
   justify-content: center;
   align-items: center;
 
-  &.space-between {
-    justify-content: space-between;
-  }
-
   h1 {
     font-size: min(max(4vw, 25px), 30px);
     text-align: center;

@@ -93,13 +93,6 @@
         outline-offset: -2px;
       }
 
-      /* Offline-disabled control: dim it so it doesn't read as
-       * interactive. */
-      &:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-      }
-
       /* Refresh in progress: spin the icon while the refetch round-trip runs
        * (design doc §8 — refresh shows a loading indicator). */
       &.refreshing svg {
