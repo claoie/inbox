@@ -13,6 +13,59 @@
 //      `budget/src/client/sw.ts` lines 63–79 (Hoie 2026-05-19).
 
 const CACHE_NAME = "mail-v1";
+const ASSET_MANIFEST = "/asset-manifest.json";
+
+const asPaths = (value) =>
+  Array.isArray(value) ? value.filter((a) => typeof a === "string") : undefined;
+
+const readJson = async (response) => {
+  try {
+    return await response.json();
+  } catch {
+    return undefined;
+  }
+};
+
+// A page loaded before this worker controlled it fetched its entry bundle
+// without passing through the cache, and a route chunk is only fetched when
+// first visited. Caching the whole build up front keeps an open tab working
+// after a deploy removes those files. The previous build is kept for tabs that
+// are still running it; anything older is dropped.
+const precacheBuild = async () => {
+  const response = await fetch(ASSET_MANIFEST, { cache: "no-store" });
+  if (!response.ok) return;
+  const current = asPaths(await readJson(response));
+  if (!current) return;
+
+  const cache = await caches.open(CACHE_NAME);
+  const storedResponse = await cache.match(ASSET_MANIFEST);
+  const stored = (storedResponse && (await readJson(storedResponse))) || {};
+  const storedCurrent = asPaths(stored.current) || [];
+  const isNewBuild = current.join() !== storedCurrent.join();
+  const previous = isNewBuild ? storedCurrent : asPaths(stored.previous) || [];
+  const keep = new Set([...current, ...previous]);
+
+  const requests = await cache.keys();
+  const cachedPaths = new Set(requests.map((r) => new URL(r.url).pathname));
+  await Promise.all([
+    ...current.filter((a) => !cachedPaths.has(a)).map((a) => cache.add(a).catch(() => {})),
+    ...requests
+      .filter((r) => {
+        const { pathname } = new URL(r.url);
+        return pathname.startsWith("/assets/") && !keep.has(pathname);
+      })
+      .map((r) => cache.delete(r)),
+  ]);
+
+  if (isNewBuild) {
+    await cache.put(
+      ASSET_MANIFEST,
+      new Response(JSON.stringify({ current, previous }), {
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  }
+};
 
 self.addEventListener("install", (event) => {
   // Precache the SPA shell so it's available offline.
@@ -32,7 +85,8 @@ self.addEventListener("activate", (event) => {
       .then((names) =>
         Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n))),
       )
-      .then(() => self.clients.claim()),
+      .then(() => self.clients.claim())
+      .then(() => precacheBuild().catch(() => {})),
   );
 });
 
@@ -57,7 +111,8 @@ self.addEventListener("fetch", (event) => {
         cache.match(request).then((cached) => {
           if (cached) return cached;
           return fetch(request).then((response) => {
-            if (response.ok) cache.put(request, response.clone());
+            const isHtml = (response.headers.get("Content-Type") || "").includes("text/html");
+            if (response.ok && !isHtml) cache.put(request, response.clone());
             return response;
           });
         }),
@@ -78,7 +133,8 @@ self.addEventListener("fetch", (event) => {
           if (response.ok) {
             return caches
               .open(CACHE_NAME)
-              .then((cache) => cache.put("/", response.clone()));
+              .then((cache) => cache.put("/", response.clone()))
+              .then(() => precacheBuild().catch(() => {}));
           }
         })
         .catch(() => {}),

@@ -1,9 +1,27 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
+/**
+ * Emits `asset-manifest.json`, every hashed file of the build, so the service
+ * worker can cache a whole build before a later deploy deletes it from disk.
+ */
+const assetManifest = (): Plugin => ({
+  name: "asset-manifest",
+  generateBundle(_, bundle) {
+    const assets = Object.keys(bundle)
+      .filter((fileName) => fileName.startsWith("assets/"))
+      .map((fileName) => `/${fileName}`);
+    this.emitFile({
+      type: "asset",
+      fileName: "asset-manifest.json",
+      source: JSON.stringify(assets),
+    });
+  },
+});
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), assetManifest()],
   resolve: {
     alias: {
       client: path.resolve(__dirname, "./src/client"),
