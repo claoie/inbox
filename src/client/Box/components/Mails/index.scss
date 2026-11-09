@@ -35,8 +35,7 @@
   }
 
   // Search box (design doc §9): top of the center column with the scope
-  // label. Budget primitives — 24px input on --surface, no border — with
-  // the clear button following the accounts filter's filter_clear pattern.
+  // label, a 24px input on --surface with no border, and a `.clear-button`.
   .search-box {
     padding: 10px 10px 8px;
     border-bottom: 1px solid var(--divider);
