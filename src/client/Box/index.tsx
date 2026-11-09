@@ -1,4 +1,4 @@
-import { Suspense, UIEventHandler, useContext, useState } from "react";
+import { Suspense, UIEventHandler, useContext, useEffect, useRef, useState } from "react";
 import { Writer, Accounts, Mails } from "./components";
 import { Context } from "client";
 import "./index.scss";
@@ -20,11 +20,30 @@ const Box = () => {
   } = useContext(Context);
 
   const [page, setPage] = useState(1);
+  const centerColRef = useRef<HTMLDivElement>(null);
+  const centerInnerRef = useRef<HTMLDivElement>(null);
+
+  const loadMoreNearBottom = (centerCol: HTMLElement) => {
+    const { scrollHeight, offsetHeight, scrollTop } = centerCol;
+    if (scrollHeight - 100 <= offsetHeight + scrollTop) setPage((p) => p + 1);
+  };
 
   const onCenterScroll: UIEventHandler<HTMLDivElement> = (e) => {
-    const { scrollHeight, offsetHeight, scrollTop } = e.currentTarget;
-    if (scrollHeight - 100 <= offsetHeight + scrollTop) setPage(page + 1);
+    loadMoreNearBottom(e.currentTarget);
   };
+
+  // A list shorter than a tall column never scrolls, so the next page would
+  // never load. Re-check whenever the list or the column resizes; once every
+  // mail is shown the list stops growing and the checks stop.
+  useEffect(() => {
+    const centerCol = centerColRef.current;
+    const centerInner = centerInnerRef.current;
+    if (!centerCol || !centerInner) return;
+    const observer = new ResizeObserver(() => loadMoreNearBottom(centerCol));
+    observer.observe(centerCol);
+    observer.observe(centerInner);
+    return () => observer.disconnect();
+  }, []);
 
   const onClickCenterCurtain = () => {
     if (!isWriterOpen) setIsAccountsOpen(false);
@@ -41,6 +60,7 @@ const Box = () => {
           "center-col" + (isAccountsOpen ? " lock-scroll" : "")
         }
         onScroll={onCenterScroll}
+        ref={centerColRef}
       >
         <div
           className={
@@ -51,7 +71,7 @@ const Box = () => {
           }
           onClick={onClickCenterCurtain}
         />
-        <div className="center-inner">
+        <div className="center-inner" ref={centerInnerRef}>
           <Suspense fallback={<></>}>
             <Mails page={page} />
           </Suspense>
