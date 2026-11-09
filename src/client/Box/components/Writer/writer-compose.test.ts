@@ -535,6 +535,42 @@ describe("Writer compose settings", () => {
     }
   });
 
+  it("keeps the default-From name on a reply to its address in other casing", async () => {
+    const { Category } = await import("client");
+    const mount = await mountWriter({
+      selectedAccount: "",
+      selectedCategory: Category.Search,
+      defaultFrom: "billing@example.com"
+    });
+    try {
+      await mount.update({ isWriterOpen: false });
+      await mount.update({
+        isWriterOpen: true,
+        replyData: {
+          ...reply,
+          to: { address: "Billing@Example.com" } as ReplyData["to"]
+        }
+      });
+      expect(inputByPlaceholder(mount.container, "name").value).toBe("billing");
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("keeps the name on a forward from the default From's own mailbox", async () => {
+    const mount = await mountWriter({
+      selectedAccount: "billing@example.com",
+      defaultFrom: "billing@example.com"
+    });
+    try {
+      await mount.update({ isWriterOpen: false });
+      await mount.update({ isWriterOpen: true, replyData: forward });
+      expect(inputByPlaceholder(mount.container, "name").value).toBe("billing");
+    } finally {
+      await mount.teardown();
+    }
+  });
+
   it("keeps a name the user typed when replying", async () => {
     const { Category } = await import("client");
     const mount = await mountWriter({
