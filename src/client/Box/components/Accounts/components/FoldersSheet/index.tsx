@@ -36,7 +36,7 @@ const FoldersSheet = ({
   onClose
 }: {
   folders: SheetFolder[];
-  selectedCategory: Category;
+  selectedCategory?: Category;
   onSelectFolder: (category: Category) => void;
   onClose: () => void;
 }) => {

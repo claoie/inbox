@@ -318,3 +318,109 @@ describe("entering search closes the writer (real App behavior)", () => {
     }
   });
 });
+
+describe("Settings page (real App behavior)", () => {
+  const settingsItem = (mount: Awaited<ReturnType<typeof mountApp>>) =>
+    mount.waitFor(() =>
+      mount.container.querySelector('.categories [aria-label="Settings"]')
+    );
+
+  it("the header search closes the page", async () => {
+    const mount = await mountApp();
+    try {
+      await mount.waitFor(() => mount.mailCards()[0] ?? null);
+      await mount.click(await settingsItem(mount));
+      await mount.waitFor(() => mount.container.querySelector(".settings"));
+
+      await mount.click((await mount.waitFor(() =>
+        mount.headerSearchTrigger()
+      )) as Element);
+      await mount.waitFor(() => mount.searchInput());
+      expect(mount.container.querySelector(".settings")).toBeNull();
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("keeps the list mounted underneath, so closing the page returns to the same list", async () => {
+    const mount = await mountApp();
+    try {
+      const firstCard = await mount.waitFor(() => mount.mailCards()[0] ?? null);
+      await mount.click(await settingsItem(mount));
+      await mount.waitFor(() => mount.container.querySelector(".settings"));
+      expect(
+        mount.container.querySelector(".center-col.behind-settings")
+      ).not.toBeNull();
+      expect(firstCard.isConnected).toBe(true);
+
+      await mount.click(await settingsItem(mount));
+      expect(mount.container.querySelector(".settings")).toBeNull();
+      expect(mount.container.querySelector(".behind-settings")).toBeNull();
+      expect(mount.mailCards()[0]).toBe(firstCard);
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("signing out and back in lands on the list, not on Settings", async () => {
+    const originalConfirm = window.confirm;
+    const originalDelete = call.delete;
+    const originalPost = call.post;
+    const originalFetch = globalThis.fetch;
+    window.confirm = () => true;
+    // Signing back in shows the getting-started page until an account is
+    // selected, and that page fetches its text directly.
+    globalThis.fetch = (async () => new Response("")) as unknown as typeof fetch;
+    call.delete = (async () => ({ status: "success" })) as typeof call.delete;
+    call.post = (async (url: string) =>
+      url === "/api/users/login"
+        ? {
+            status: "success",
+            body: { id: "user-1", email: "maple@example.com", username: "maple" }
+          }
+        : { status: "success" }) as typeof call.post;
+    const mount = await mountApp();
+    try {
+      await mount.waitFor(() => mount.mailCards()[0] ?? null);
+      await mount.click(await settingsItem(mount));
+      await mount.waitFor(() => mount.container.querySelector(".settings"));
+
+      await mount.click(
+        await mount.waitFor(() =>
+          mount.container.querySelector(".accounts-logout")
+        )
+      );
+      const form = (await mount.waitFor(() =>
+        mount.container.querySelector("form")
+      )) as HTMLFormElement;
+      setInputValue(
+        form.querySelector('input[name="username"]') as HTMLInputElement,
+        "maple"
+      );
+      setInputValue(
+        form.querySelector('input[name="password"]') as HTMLInputElement,
+        "pw"
+      );
+      await mount.act(async () => {
+        form.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true })
+        );
+      });
+
+      // Sign-in hands the user back after a short delay.
+      for (let i = 0; i < 40 && !mount.mailCards().length; i++) {
+        await mount.act(async () => {
+          await new Promise((r) => setTimeout(r, 50));
+        });
+      }
+      expect(mount.mailCards().length).toBeGreaterThan(0);
+      expect(mount.container.querySelector(".settings")).toBeNull();
+    } finally {
+      window.confirm = originalConfirm;
+      globalThis.fetch = originalFetch;
+      call.delete = originalDelete;
+      call.post = originalPost;
+      await mount.teardown();
+    }
+  });
+});

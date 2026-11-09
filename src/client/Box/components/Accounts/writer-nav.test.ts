@@ -305,17 +305,86 @@ describe("Settings page", () => {
     }
   });
 
-  it("highlights Settings, not the folder, while the page is open", async () => {
+  const railState = async (settingsOpen: boolean) => {
     const { container, waitForRail, teardown } = await mountAccounts({
-      settingsOpen: true,
-      category: Category.SavedMails
+      settingsOpen,
+      category: Category.NewMails
     });
     try {
-      await waitForRail();
-      const clicked = Array.from(
-        container.querySelectorAll(".categories .rail-item.clicked")
-      ).map((el) => el.textContent);
-      expect(clicked).toEqual(["Settings"]);
+      const items = Array.from(await waitForRail());
+      const newTab = items.find((el) => el.textContent?.startsWith("New"))!;
+      const settings = items.find(
+        (el) => el.getAttribute("aria-label") === "Settings"
+      )!;
+      return {
+        clicked: Array.from(
+          container.querySelectorAll(".categories .rail-item.clicked")
+        ).map((el) => el.textContent),
+        selectedTabs: items
+          .filter((el) => el.getAttribute("aria-selected") === "true")
+          .map((el) => el.textContent),
+        newBadge: newTab.querySelector(".numberBall")?.textContent ?? null,
+        settingsPressed: settings.getAttribute("aria-pressed")
+      };
+    } finally {
+      await teardown();
+    }
+  };
+
+  it("marks Settings, not the folder, as current while the page is open", async () => {
+    const open = await railState(true);
+    expect(open.clicked).toEqual(["Settings"]);
+    expect(open.selectedTabs).toEqual([]);
+    expect(open.settingsPressed).toBe("true");
+    // The folder isn't highlighted, so its unread count shows again.
+    expect(open.newBadge).toBe("4");
+
+    const closed = await railState(false);
+    expect(closed.clicked).toEqual(["New"]);
+    expect(closed.selectedTabs).toEqual(["New"]);
+    expect(closed.settingsPressed).toBe("false");
+    expect(closed.newBadge).toBeNull();
+  });
+
+  it("opening it closes the writer", async () => {
+    const { writerOpenCalls, settingsOpenCalls, clickRailItem, teardown } =
+      await mountAccounts({ writerOpen: true });
+    try {
+      await clickRailItem("Settings");
+      expect(settingsOpenCalls).toEqual([true]);
+      expect(writerOpenCalls).toEqual([false]);
+    } finally {
+      await teardown();
+    }
+  });
+
+  it("an account found by search closes the page", async () => {
+    const { settingsOpenCalls, clickAccountRow, teardown } =
+      await mountAccounts({
+        settingsOpen: true,
+        category: Category.Search,
+        selectedAccount: "maple"
+      });
+    try {
+      await clickAccountRow("maple");
+      expect(settingsOpenCalls).toEqual([false]);
+    } finally {
+      await teardown();
+    }
+  });
+
+  it("the Folders sheet marks no folder current while the page is open", async () => {
+    const { clickRailItem, teardown } = await mountAccounts({
+      width: 390,
+      accountsOpen: false,
+      settingsOpen: true
+    });
+    try {
+      await clickRailItem("Folders");
+      expect(document.querySelectorAll(".folders-sheet-row").length).toBe(5);
+      expect(
+        document.querySelectorAll(".folders-sheet-row[aria-current]").length
+      ).toBe(0);
     } finally {
       await teardown();
     }

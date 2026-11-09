@@ -244,6 +244,7 @@ const App = ({ user: session }: Props) => {
       setSelectedAccount("");
       setSelectedCategory(Category.AllMails);
       setIsWriterOpen(false);
+      setIsSettingsOpen(false);
       setIsAccountsOpen(window.innerWidth > 1050);
       setReplyData({});
       setNewMailsTotal(0);

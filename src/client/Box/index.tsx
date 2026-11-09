@@ -42,7 +42,9 @@ const Box = () => {
       </Suspense>
       <div
         className={
-          "center-col" + (isAccountsOpen ? " lock-scroll" : "")
+          "center-col" +
+          (isAccountsOpen ? " lock-scroll" : "") +
+          (isSettingsOpen ? " behind-settings" : "")
         }
         onScroll={loadMoreNearBottom}
         ref={centerColRef}
@@ -58,14 +60,19 @@ const Box = () => {
         />
         <div className="center-inner">
           <Suspense fallback={<></>}>
-            {isSettingsOpen ? (
-              <Settings />
-            ) : (
-              <Mails page={page} loadMoreIfShort={loadMoreNearBottom} />
-            )}
+            <Mails page={page} loadMoreIfShort={loadMoreNearBottom} />
           </Suspense>
         </div>
       </div>
+      {isSettingsOpen ? (
+        <div className="center-col settings-col">
+          <div className="center-inner">
+            <Suspense fallback={<></>}>
+              <Settings />
+            </Suspense>
+          </div>
+        </div>
+      ) : null}
       <div className={"writer-pane" + (isWriterOpen ? " open" : "")}>
         <Suspense fallback={<></>}>
           <Writer />

@@ -26,7 +26,11 @@
     }
   }
 
+  /* Settings opens over the list in the same cell, so the list keeps its
+   * scroll position and open message underneath. */
   .center-col {
+    grid-row: 1;
+    grid-column: -2 / -1;
     position: relative;
     overflow-y: auto;
     overflow-x: hidden;
@@ -41,6 +45,10 @@
         overflow: hidden;
       }
     }
+  }
+
+  .behind-settings > .center-inner {
+    visibility: hidden;
   }
 
   /* The centered 950px content column (design doc §4). */

@@ -377,9 +377,12 @@ const Accounts = ({
       setSelectedCategory(category);
     };
 
+    // While Settings is open no folder is the current view.
+    const currentFolder = isSettingsOpen ? undefined : selectedCategory;
+
     const categoryComponents = Object.values(Category).map((e, i) => {
       const classes = ["rail-item"];
-      if (selectedCategory === e && !isSettingsOpen) classes.push("clicked");
+      if (currentFolder === e) classes.push("clicked");
       // The five folder items hide on the narrow bar — the Folders entry
       // opens them as a sheet instead (design doc §4, option A). Search
       // stays: it is one of the narrow bar's five items.
@@ -387,12 +390,12 @@ const Accounts = ({
 
       const Icon = categoryIcons[e];
       // Numeric unread count per folder tab (design doc §5/§9) — the
-      // folder-level totals from the accounts payload. The selected tab
-      // shows no badge; it is already highlighted.
+      // folder-level totals from the accounts payload. The highlighted tab
+      // shows no badge.
       type FolderCategory = Exclude<Category, Category.Search>;
       const badgeCount =
         e === Category.Search ? 0 : folderCounts[e as FolderCategory];
-      const showBadge = e !== selectedCategory && badgeCount > 0;
+      const showBadge = e !== currentFolder && badgeCount > 0;
 
       return (
         <div
@@ -400,7 +403,7 @@ const Accounts = ({
           className={classes.join(" ")}
           role="tab"
           tabIndex={0}
-          aria-selected={selectedCategory === e && !isSettingsOpen}
+          aria-selected={currentFolder === e}
           onClick={() => onClickCategory(e)}
           onKeyDown={onKeyboardActivate(() => onClickCategory(e))}
         >
@@ -443,11 +446,13 @@ const Accounts = ({
       setIsWriterOpen(!isWriterOpen);
     };
 
-    // Settings replaces the list in the center column, so on narrow screens
-    // the accounts overlay that covers that column closes.
+    // Opening Settings is navigation: the writer and, on narrow screens, the
+    // accounts overlay both cover the center column the page opens in.
     const onClickSettings = () => {
-      if (!isSettingsOpen && isAccountsOpen && viewSize.width <= 1050)
-        setIsAccountsOpen(false);
+      if (!isSettingsOpen) {
+        setIsWriterOpen(false);
+        if (isAccountsOpen && viewSize.width <= 1050) setIsAccountsOpen(false);
+      }
       setIsSettingsOpen(!isSettingsOpen);
     };
 
@@ -570,7 +575,7 @@ const Accounts = ({
         {isFoldersSheetOpen ? (
           <FoldersSheet
             folders={sheetFolders}
-            selectedCategory={selectedCategory}
+            selectedCategory={currentFolder}
             onSelectFolder={onClickCategory}
             onClose={() => setIsFoldersSheetOpen(false)}
           />
