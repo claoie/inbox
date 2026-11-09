@@ -123,6 +123,13 @@
         .editor_container_bottom_padding {
           min-height: 100%;
 
+          .signature-preview {
+            margin-top: 10px;
+            white-space: pre-wrap;
+            color: var(--textDim);
+            cursor: default;
+          }
+
           .original_message {
             border-radius: 3px;
             padding: 14px 0 4px 15px;

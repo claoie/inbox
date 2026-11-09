@@ -50,6 +50,17 @@ export const replyDataToOriginalMessage = (
   };
 };
 
+/** The signature as HTML: its lines escaped and kept as line breaks. */
+export const signatureHtml = (signature: string) => {
+  if (!signature.trim()) return "";
+  const escaped = signature
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+  return `<p>${escaped.split(/\r?\n/).join("<br>")}</p>`;
+};
+
 export const getReplyContainerHtml = (originalMessage: OriginalMessage) => {
   const inner =
     `<p>${originalMessage.prefix

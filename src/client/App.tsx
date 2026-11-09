@@ -95,6 +95,17 @@ export interface ContextType {
   exitSearch: () => void;
   density: Density;
   setDensity: Dispatch<SetStateAction<ContextType["density"]>>;
+  /** Plain text added below every sent message; empty for none. */
+  signature: string;
+  setSignature: Dispatch<SetStateAction<ContextType["signature"]>>;
+  /** Whether a new reply quotes the message it answers. */
+  includeOriginal: boolean;
+  setIncludeOriginal: Dispatch<
+    SetStateAction<ContextType["includeOriginal"]>
+  >;
+  /** The address From is filled with on a new message when no mailbox is selected. */
+  defaultFrom: string;
+  setDefaultFrom: Dispatch<SetStateAction<ContextType["defaultFrom"]>>;
   /** Whether the compose form currently holds an unsent draft. */
   hasDraft: boolean;
   setHasDraft: Dispatch<SetStateAction<ContextType["hasDraft"]>>;
@@ -142,6 +153,12 @@ const App = ({ user: session }: Props) => {
     "comfortable",
     (v) => (v === "compact" ? "compact" : "comfortable")
   );
+  const [signature, setSignature] = useLocalStorage("signature", "");
+  const [includeOriginal, setIncludeOriginal] = useLocalStorage(
+    "includeOriginal",
+    true
+  );
+  const [defaultFrom, setDefaultFrom] = useLocalStorage("defaultFrom", "");
   // Draft signal for the rail Compose dot (design doc §7): owned by the
   // Writer, which is the only component that sees the draft fields.
   const [hasDraft, setHasDraft] = useState(false);
@@ -284,6 +301,12 @@ const App = ({ user: session }: Props) => {
     exitSearch,
     density,
     setDensity,
+    signature,
+    setSignature,
+    includeOriginal,
+    setIncludeOriginal,
+    defaultFrom,
+    setDefaultFrom,
     hasDraft,
     setHasDraft
   };

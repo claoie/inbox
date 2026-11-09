@@ -4,8 +4,22 @@ import {
   EMPTY_ORIGINAL_META,
   wrapQuoteHtml,
   replyDataToOriginalMessage,
-  getReplyContainerHtml
+  getReplyContainerHtml,
+  signatureHtml
 } from "./lib";
+
+describe("signatureHtml", () => {
+  it("is empty for a blank signature", () => {
+    expect(signatureHtml("")).toBe("");
+    expect(signatureHtml("  \n ")).toBe("");
+  });
+
+  it("escapes markup and keeps each line", () => {
+    expect(signatureHtml('Maple <maple@example.com>\r\n"A & B"')).toBe(
+      "<p>Maple &lt;maple@example.com&gt;<br>&quot;A &amp; B&quot;</p>"
+    );
+  });
+});
 
 describe("wrapQuoteHtml", () => {
   it("wraps content in the quote blockquote", () => {

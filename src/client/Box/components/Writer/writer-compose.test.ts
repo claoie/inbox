@@ -375,3 +375,178 @@ describe("Writer reply quote", () => {
     }
   });
 });
+
+describe("Writer compose settings", () => {
+  const reply: ReplyData = {
+    id: "mail-1",
+    messageId: "<abc@host>",
+    date: "2026-01-02T03:04:05.000Z",
+    subject: "Hello",
+    from: {
+      text: "Alice <alice@x.com>",
+      value: [{ address: "alice@x.com", name: "Alice" }]
+    } as ReplyData["from"],
+    to: { address: "maple@example.com" } as ReplyData["to"],
+    html: "<p>quoted body</p>"
+  };
+  const forward: ReplyData = { ...reply, to: undefined };
+
+  // Sends through the real Send button and returns what was posted.
+  const send = async (mount: Awaited<ReturnType<typeof mountWriter>>) => {
+    const { call } = await import("client");
+    const original = {
+      postFormData: call.postFormData,
+      confirm: window.confirm,
+      alert: window.alert
+    };
+    let posted: FormData | null = null;
+    call.postFormData = (async (_url: string, data: FormData) => {
+      posted = data;
+      return { status: "success" };
+    }) as typeof call.postFormData;
+    window.confirm = () => true;
+    window.alert = () => {};
+    try {
+      await mount.act(async () => {
+        buttonByText(mount.container, "Send").click();
+      });
+      await mount.act(async () => {});
+    } finally {
+      call.postFormData = original.postFormData;
+      window.confirm = original.confirm;
+      window.alert = original.alert;
+    }
+    return posted as FormData | null;
+  };
+
+  it("fills From with the default From when no mailbox is selected", async () => {
+    const setHasDraftCalls: unknown[] = [];
+    const { container, teardown } = await mountWriter({
+      defaultFrom: "billing@example.com",
+      setHasDraft: (v: unknown) => {
+        setHasDraftCalls.push(v);
+      }
+    });
+    try {
+      expect(inputByPlaceholder(container, "name").value).toBe("billing");
+      expect(inputByPlaceholder(container, "account").value).toBe("billing");
+      // The pre-fill alone is not a draft.
+      expect(setHasDraftCalls[setHasDraftCalls.length - 1]).toBe(false);
+    } finally {
+      await teardown();
+    }
+  });
+
+  it("keeps filling From from the selected mailbox over the default", async () => {
+    const { container, teardown } = await mountWriter({
+      selectedAccount: "maple@example.com",
+      defaultFrom: "billing@example.com"
+    });
+    try {
+      expect(inputByPlaceholder(container, "account").value).toBe("maple");
+    } finally {
+      await teardown();
+    }
+  });
+
+  it("uses the default From while searching, where the account holds a query", async () => {
+    const { Category } = await import("client");
+    const { container, teardown } = await mountWriter({
+      selectedAccount: "invoice",
+      selectedCategory: Category.Search,
+      defaultFrom: "billing@example.com"
+    });
+    try {
+      expect(inputByPlaceholder(container, "account").value).toBe("billing");
+    } finally {
+      await teardown();
+    }
+  });
+
+  it("leaves the default From out of a reply", async () => {
+    const { Category } = await import("client");
+    const { container, teardown } = await mountWriter({
+      replyData: reply,
+      selectedAccount: "",
+      selectedCategory: Category.Search,
+      defaultFrom: "billing@example.com"
+    });
+    try {
+      expect(inputByPlaceholder(container, "name").value).toBe("");
+      expect(inputByPlaceholder(container, "account").value).toBe("maple");
+    } finally {
+      await teardown();
+    }
+  });
+
+  it("starts a reply without the quote when including the original is off, and still threads it", async () => {
+    const mount = await mountWriter({
+      replyData: reply,
+      includeOriginal: false
+    });
+    try {
+      expect(mount.container.querySelector(".original_message")).toBeNull();
+      const posted = await send(mount);
+      expect(posted).not.toBeNull();
+      expect(posted!.get("inReplyTo")).toBe("<abc@host>");
+      expect(String(posted!.get("html"))).not.toContain("quoted body");
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("still quotes a forward when including the original is off", async () => {
+    const { container, teardown } = await mountWriter({
+      replyData: forward,
+      includeOriginal: false
+    });
+    try {
+      expect(
+        container.querySelector(".original_message")?.textContent
+      ).toContain("quoted body");
+    } finally {
+      await teardown();
+    }
+  });
+
+  it("quotes a reply by default", async () => {
+    const { container, teardown } = await mountWriter({ replyData: reply });
+    try {
+      expect(container.querySelector(".original_message")).not.toBeNull();
+    } finally {
+      await teardown();
+    }
+  });
+
+  it("shows the signature under the editor and sends it after the message", async () => {
+    const mount = await mountWriter({
+      replyData: reply,
+      signature: "Maple\n<maple@example.com>"
+    });
+    try {
+      expect(
+        mount.container.querySelector(".signature-preview")?.textContent
+      ).toBe("Maple\n<maple@example.com>");
+      const posted = await send(mount);
+      const html = String(posted!.get("html"));
+      const signatureAt = html.indexOf(
+        "<p>Maple<br>&lt;maple@example.com&gt;</p>"
+      );
+      expect(signatureAt).toBeGreaterThan(-1);
+      expect(signatureAt).toBeLessThan(html.indexOf("quoted body"));
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("shows and sends no signature when it is empty", async () => {
+    const mount = await mountWriter({ replyData: reply, signature: "  " });
+    try {
+      expect(mount.container.querySelector(".signature-preview")).toBeNull();
+      const posted = await send(mount);
+      expect(String(posted!.get("html"))).not.toContain("<p>  </p>");
+    } finally {
+      await mount.teardown();
+    }
+  });
+});

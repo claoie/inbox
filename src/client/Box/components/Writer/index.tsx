@@ -45,7 +45,8 @@ import {
   EMPTY_ORIGINAL_META,
   wrapQuoteHtml,
   replyDataToOriginalMessage,
-  getReplyContainerHtml
+  getReplyContainerHtml,
+  signatureHtml
 } from "./lib";
 import { hasDraftFields } from "./draft";
 
@@ -60,8 +61,20 @@ const Writer = () => {
     setReplyData,
     selectedAccount,
     selectedCategory,
-    setHasDraft
+    setHasDraft,
+    signature = "",
+    includeOriginal = true,
+    defaultFrom = ""
   } = useContext(Context);
+
+  // The mailbox a new message sends from: the selected one, or the default
+  // From when none is selected. While searching, `selectedAccount` carries
+  // the search term, not an account address.
+  const selectedMailbox =
+    selectedAccount && selectedCategory !== Category.Search
+      ? selectedAccount
+      : "";
+  const prefillAccount = selectedMailbox || defaultFrom;
 
   const { isOnline } = useIsOnline();
 
@@ -174,34 +187,36 @@ const Writer = () => {
     if (el.innerHTML !== originalMessageHtml) el.innerHTML = originalMessageHtml;
   });
 
-  // Fresh compose pre-fills From from the selected mailbox (design doc §7).
-  // Only when both fields are empty, so a reopened draft — or a deliberately
-  // chosen alias — is never clobbered. Not while searching: there
-  // `selectedAccount` carries the search term, not an account address.
-  // The ref starts closed: mounting with the writer already open is an
-  // open transition too, and a fresh compose deserves the pre-fill.
+  // Fresh compose pre-fills From (design doc §7). Only when both fields are
+  // empty, so a reopened draft — or a deliberately chosen alias — is never
+  // clobbered. The ref starts closed: mounting with the writer already open
+  // is an open transition too, and a fresh compose deserves the pre-fill.
   const wasWriterOpen = useRef(false);
   useEffect(() => {
     const wasOpen = wasWriterOpen.current;
     wasWriterOpen.current = isWriterOpen;
     if (!isWriterOpen || wasOpen) return;
     if (name || sender) return;
-    if (!selectedAccount || selectedCategory === Category.Search) return;
-    setName(displayNameFor(selectedAccount));
-    setSender(selectedAccount.split("@")[0] || "");
+    // A reply or forward is not a new message: it takes From from the
+    // selected mailbox only, and the reply sets the address it answers from.
+    const account = replyData.id ? selectedMailbox : prefillAccount;
+    if (!account) return;
+    setName(displayNameFor(account));
+    setSender(account.split("@")[0] || "");
   }, [
     isWriterOpen,
     name,
     sender,
-    selectedAccount,
-    selectedCategory,
+    replyData.id,
+    selectedMailbox,
+    prefillAccount,
     setName,
     setSender
   ]);
 
   // The rail Compose button's draft dot (design doc §7): a draft is any
   // filled field, editor text, or an attached quote — but only user input
-  // counts. The From pre-fill writes the selected mailbox's name/sender,
+  // counts. The From pre-fill writes the pre-filled mailbox's name/sender,
   // so those values alone must not light the dot.
   useEffect(() => {
     setHasDraft(
@@ -214,8 +229,8 @@ const Writer = () => {
         sender,
         initialContent,
         hasQuote: !!originalMessageMeta.id,
-        prefilledName: displayNameFor(selectedAccount),
-        prefilledSender: selectedAccount.split("@")[0] || ""
+        prefilledName: displayNameFor(prefillAccount),
+        prefilledSender: prefillAccount.split("@")[0] || ""
       })
     );
   }, [
@@ -227,7 +242,7 @@ const Writer = () => {
     sender,
     initialContent,
     originalMessageMeta.id,
-    selectedAccount,
+    prefillAccount,
     setHasDraft
   ]);
 
@@ -269,7 +284,14 @@ const Writer = () => {
 
       setEditorContent(editorContent);
       setAttachments({});
-      setOriginalMessage(replyDataToOriginalMessage(replyData));
+      const original = replyDataToOriginalMessage(replyData);
+      // Without the quote a reply still threads: the meta keeps the
+      // original's Message-ID for In-Reply-To, and the empty id means no
+      // quote is shown or re-fetched. Forwards always carry the original.
+      const leaveQuoteOut = !!replyData.to?.address && !includeOriginal;
+      setOriginalMessage(
+        leaveQuoteOut ? { ...original, id: "", prefix: "", html: "" } : original
+      );
 
       setReplyData({});
     }
@@ -286,7 +308,8 @@ const Writer = () => {
     setOriginalMessage,
     setEditorContent,
     setIsCcOpen,
-    setIsBccOpen
+    setIsBccOpen,
+    includeOriginal
   ]);
 
   const sendMail = (data: FormData) => {
@@ -387,6 +410,7 @@ const Writer = () => {
 
     const html =
       processHtmlToSendMail(editor.getHTML()) +
+      signatureHtml(signature) +
       "\n\n\n" +
       getReplyContainerHtml(originalMessage);
 
@@ -610,6 +634,11 @@ const Writer = () => {
               onKeyUp={refreshFormatState}
             >
               <RichTextEditor editor={editor} />
+              {signature.trim() ? (
+                <div className="signature-preview" aria-label="Signature">
+                  {signature}
+                </div>
+              ) : null}
               {originalMessage.id ? (
                 <div className="original_message">
                   <div className="quote-header">
