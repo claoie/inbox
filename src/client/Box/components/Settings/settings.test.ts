@@ -35,7 +35,12 @@ afterEach(() => {
 
 const mountSettings = async (
   density: "comfortable" | "compact",
-  compose: { signature?: string; includeOriginal?: boolean; defaultFrom?: string } = {}
+  compose: {
+    signature?: string;
+    includeOriginal?: boolean;
+    defaultFrom?: string;
+    notificationsEnabled?: boolean;
+  } = {}
 ) => {
   const { createElement, act } = await import("react");
   const { createRoot } = await import("react-dom/client");
@@ -60,7 +65,10 @@ const mountSettings = async (
     setIncludeOriginal: (value: boolean) =>
       composeCalls.push(["includeOriginal", value]),
     defaultFrom: compose.defaultFrom ?? "",
-    setDefaultFrom: (value: string) => composeCalls.push(["defaultFrom", value])
+    setDefaultFrom: (value: string) => composeCalls.push(["defaultFrom", value]),
+    notificationsEnabled: compose.notificationsEnabled ?? true,
+    setNotificationsEnabled: (value: boolean) =>
+      composeCalls.push(["notificationsEnabled", value])
   };
 
   const container = document.createElement("div");
@@ -143,7 +151,12 @@ describe("Settings page", () => {
       const headings = Array.from(container.querySelectorAll("h3")).map(
         (h) => h.textContent
       );
-      expect(headings).toEqual(["Appearance", "Compose", "Spam allowlist"]);
+      expect(headings).toEqual([
+        "Appearance",
+        "Compose",
+        "Notifications",
+        "Spam allowlist"
+      ]);
       expect(
         container.querySelector(".allowlist .allowlist-entries .pattern")
           ?.textContent
@@ -205,6 +218,151 @@ describe("Settings › Compose", () => {
         ["signature", "Maple\nExample Co"],
         ["includeOriginal", false]
       ]);
+    } finally {
+      await mount.teardown();
+    }
+  });
+});
+
+describe("Settings › Notifications", () => {
+  type Globals = Record<string, unknown>;
+  // The DOM globals exist only once beforeAll has registered them.
+  const win = () => window as unknown as Globals;
+  let restore: () => void;
+  let permissionRequests: number;
+  let deletes: string[];
+
+  // Push notifications as a browser with them would expose: a permission,
+  // a prompt that settles to `answer`, and a service worker that can
+  // subscribe and unsubscribe.
+  const installPush = (
+    permission: NotificationPermission,
+    answer: NotificationPermission = permission
+  ) => {
+    const notification = {
+      permission,
+      requestPermission: async () => {
+        permissionRequests++;
+        notification.permission = answer;
+        return answer;
+      }
+    };
+    const registration = {
+      pushManager: {
+        getSubscription: async () => null,
+        subscribe: async () => ({})
+      }
+    };
+    const previous = {
+      Notification: win().Notification,
+      PushManager: win().PushManager,
+      serviceWorker: Object.getOwnPropertyDescriptor(navigator, "serviceWorker"),
+      post: call.post,
+      delete: call.delete
+    };
+    win().Notification = notification;
+    win().PushManager = function PushManager() {};
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: {
+        register: async () => registration,
+        ready: Promise.resolve(registration),
+        getRegistration: async () => registration
+      }
+    });
+    call.post = (async () => ({ status: "success", body: "sub-1" })) as typeof call.post;
+    call.delete = (async (path: string) => {
+      deletes.push(path);
+      return { status: "success" };
+    }) as typeof call.delete;
+    restore = () => {
+      win().Notification = previous.Notification;
+      win().PushManager = previous.PushManager;
+      if (previous.serviceWorker)
+        Object.defineProperty(navigator, "serviceWorker", previous.serviceWorker);
+      else delete (navigator as unknown as Globals).serviceWorker;
+      call.post = previous.post;
+      call.delete = previous.delete;
+    };
+  };
+
+  beforeEach(() => {
+    permissionRequests = 0;
+    deletes = [];
+    restore = () => {};
+    window.localStorage.clear();
+  });
+  afterEach(() => restore());
+
+  const notificationsSwitch = (container: HTMLElement) =>
+    container.querySelector("#settings-notifications") as HTMLInputElement;
+  const notificationsDescription = (container: HTMLElement) =>
+    notificationsSwitch(container).closest(".settings-row")!.textContent;
+
+  it("is off and disabled where the browser has no push notifications", async () => {
+    const mount = await mountSettings("comfortable");
+    try {
+      const toggle = notificationsSwitch(mount.container);
+      expect(toggle.checked).toBe(false);
+      expect(toggle.disabled).toBe(true);
+      expect(notificationsDescription(mount.container)).toContain(
+        "can't show notifications"
+      );
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("turning it off unsubscribes this browser", async () => {
+    installPush("granted");
+    window.localStorage.setItem("push_subscription_id", JSON.stringify("sub-1"));
+    const mount = await mountSettings("comfortable");
+    try {
+      const toggle = notificationsSwitch(mount.container);
+      expect(toggle.checked).toBe(true);
+      await mount.act(async () => toggle.click());
+      await mount.flush();
+      expect(mount.composeCalls).toEqual([["notificationsEnabled", false]]);
+      expect(deletes).toEqual(["/api/push/subscribe/sub-1"]);
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("turning it on asks for permission first, then subscribes", async () => {
+    installPush("default", "granted");
+    const mount = await mountSettings("comfortable", {
+      notificationsEnabled: false
+    });
+    try {
+      const toggle = notificationsSwitch(mount.container);
+      expect(toggle.disabled).toBe(false);
+      await mount.act(async () => toggle.click());
+      await mount.flush();
+      expect(permissionRequests).toBe(1);
+      expect(mount.composeCalls).toEqual([["notificationsEnabled", true]]);
+      expect(window.localStorage.getItem("push_subscription_id")).toBe(
+        JSON.stringify("sub-1")
+      );
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("stays off and explains when the permission prompt is refused", async () => {
+    installPush("default", "denied");
+    const mount = await mountSettings("comfortable", {
+      notificationsEnabled: false
+    });
+    try {
+      await mount.act(async () => notificationsSwitch(mount.container).click());
+      await mount.flush();
+      expect(permissionRequests).toBe(1);
+      expect(mount.composeCalls).toEqual([]);
+      const toggle = notificationsSwitch(mount.container);
+      expect(toggle.checked).toBe(false);
+      expect(toggle.disabled).toBe(true);
+      expect(notificationsDescription(mount.container)).toContain("blocked");
     } finally {
       await mount.teardown();
     }

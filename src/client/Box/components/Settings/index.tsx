@@ -1,7 +1,7 @@
-import { useContext } from "react";
+import { useContext, useMemo, useState } from "react";
 import { useQuery } from "react-query";
 import { AccountsGetResponse } from "server";
-import { Context, Density } from "client";
+import { Context, Density, Notifier } from "client";
 import { accountsQueryUrl, fetchAccounts } from "../Accounts";
 import { Allowlist } from "./components";
 import { fromOptions } from "./fromOptions";
@@ -22,8 +22,45 @@ const Settings = () => {
     includeOriginal,
     setIncludeOriginal,
     defaultFrom,
-    setDefaultFrom
+    setDefaultFrom,
+    notificationsEnabled,
+    setNotificationsEnabled
   } = useContext(Context);
+
+  const notifier = useMemo(() => new Notifier(), []);
+  const [permission, setPermission] = useState(notifier.permission);
+  const [isSwitchingNotifications, setIsSwitchingNotifications] =
+    useState(false);
+  const notificationsBlocked =
+    permission === "denied" || permission === "unsupported";
+
+  const onChangeNotifications = async (on: boolean) => {
+    setIsSwitchingNotifications(true);
+    try {
+      if (!on) {
+        setNotificationsEnabled(false);
+        await notifier.unsubscribe();
+        return;
+      }
+      if (permission === "default") {
+        await notifier.requestPermission();
+        setPermission(notifier.permission);
+        if (notifier.permission !== "granted") return;
+      }
+      setNotificationsEnabled(true);
+      await notifier.subscribe();
+    } finally {
+      setIsSwitchingNotifications(false);
+    }
+  };
+
+  const notificationsDescription =
+    permission === "unsupported"
+      ? "This browser can't show notifications from this site."
+      : permission === "denied"
+        ? "Notifications for this site are blocked in your browser's settings."
+        : "Turning them off also stops the unread count on the app icon " +
+          "from updating while the app is closed.";
 
   // The accounts panel owns this query; read its data without fetching.
   const accountsQuery = useQuery<AccountsGetResponse>(
@@ -112,6 +149,25 @@ const Settings = () => {
             type="checkbox"
             checked={includeOriginal}
             onChange={(e) => setIncludeOriginal(e.target.checked)}
+          />
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <h3>Notifications</h3>
+        <div className="settings-row">
+          <label className="settings-label" htmlFor="settings-notifications">
+            Desktop notifications for new mail
+            <span className="settings-description">
+              {notificationsDescription}
+            </span>
+          </label>
+          <input
+            id="settings-notifications"
+            type="checkbox"
+            checked={notificationsEnabled && permission === "granted"}
+            disabled={notificationsBlocked || isSwitchingNotifications}
+            onChange={(e) => onChangeNotifications(e.target.checked)}
           />
         </div>
       </div>

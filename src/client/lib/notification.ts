@@ -36,6 +36,11 @@ export class Notifier {
     (navigator as NavigatorWithBadging).clearAppBadge().catch(console.error);
   };
 
+  /** What this browser allows: `unsupported` when it has no push notifications. */
+  get permission(): NotificationPermission | "unsupported" {
+    return this.isNotificationAvailable ? Notification.permission : "unsupported";
+  }
+
   requestPermission = () => {
     if (!this.isNotificationAvailable) return;
     return Notification.requestPermission();
@@ -86,6 +91,26 @@ export class Notifier {
       console.log("Subscribed to push notifications");
     } catch (error) {
       console.error("Error subscribing to push notifications:", error);
+    }
+  };
+
+  /**
+   * Stops push to this browser: the server drops its subscription and the
+   * browser forgets its own, so `subscribe` starts from scratch next time.
+   */
+  unsubscribe = async () => {
+    const savedSubscriptionId = getLocalStorageItem("push_subscription_id");
+    if (savedSubscriptionId) {
+      await call.delete("/api/push/subscribe/" + savedSubscriptionId);
+    }
+    setLocalStorageItem("push_subscription_id", undefined);
+    if (!this.isNotificationAvailable) return;
+    try {
+      const registration = await navigator.serviceWorker.getRegistration();
+      const existing = await registration?.pushManager.getSubscription();
+      await existing?.unsubscribe();
+    } catch (error) {
+      console.error("Error unsubscribing from push notifications:", error);
     }
   };
 }
