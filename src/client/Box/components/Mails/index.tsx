@@ -154,6 +154,7 @@ const RenderedMail = ({
   density,
   isSent
 }: RenderedMailProps) => {
+  const { isSettingsOpen } = useContext(Context);
   const isActive = !!activeMailId[mail.id];
 
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
@@ -171,14 +172,14 @@ const RenderedMail = ({
   }, [mail.id, setActiveMailId]);
 
   // Esc collapses the open message (design doc §6). The writer owns Esc
-  // while it is open, typing in a field keeps its own Esc, and an open
-  // dialog overlay (the Folders sheet) owns Esc too, so all three
-  // skip this handler.
+  // while it is open, typing in a field keeps its own Esc, an open dialog
+  // overlay (the Folders sheet) owns Esc too, and the list stays mounted
+  // but hidden under Settings, so all four skip this handler.
   useEffect(() => {
     if (!isActive) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      if (isWriterOpen) return;
+      if (isWriterOpen || isSettingsOpen) return;
       // A dialog overlay owns Esc while it is open — the Folders sheet
       // registers its own window-level Escape handler. Without this, one
       // press closes the dialog and collapses the message behind it.
@@ -198,7 +199,7 @@ const RenderedMail = ({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isActive, isWriterOpen, onClickClose]);
+  }, [isActive, isWriterOpen, isSettingsOpen, onClickClose]);
 
   const onClickOpenInNewTab = async () => {
     const queryUrl = `/api/mails/body/${mail.id}`;

@@ -1,3 +1,6 @@
+// Signing back in hydrates the IndexedDB query cache; without a store the
+// shared cache marks itself unavailable for every later test file.
+import "fake-indexeddb/auto";
 import {
   describe,
   it,
@@ -358,6 +361,35 @@ describe("Settings page (real App behavior)", () => {
       expect(mount.container.querySelector(".behind-settings")).toBeNull();
       expect(mount.mailCards()[0]).toBe(firstCard);
     } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("Escape in Settings leaves the open message behind it open", async () => {
+    // Opening an unread message marks it read.
+    const originalPost = call.post;
+    call.post = (async () => ({ status: "success" })) as typeof call.post;
+    const mount = await mountApp();
+    try {
+      const firstCard = await mount.waitFor(() => mount.mailCards()[0] ?? null);
+      await mount.click(firstCard.querySelector(".header") as Element);
+      await mount.waitFor(() => firstCard.querySelector(".actionRow"));
+
+      await mount.click(await settingsItem(mount));
+      await mount.waitFor(() => mount.container.querySelector(".settings"));
+      const densityButton = mount.container.querySelector(
+        ".settings .segmented button"
+      ) as HTMLElement;
+      await mount.act(async () => {
+        densityButton.dispatchEvent(
+          new KeyboardEvent("keydown", { bubbles: true, key: "Escape" })
+        );
+      });
+
+      await mount.click(await settingsItem(mount));
+      expect(firstCard.querySelector(".actionRow")).not.toBeNull();
+    } finally {
+      call.post = originalPost;
       await mount.teardown();
     }
   });
