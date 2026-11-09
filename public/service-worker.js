@@ -131,9 +131,11 @@ self.addEventListener("fetch", (event) => {
       responsePromise
         .then((response) => {
           if (response.ok) {
+            // Clone before respondWith starts reading the body, or the clone throws.
+            const shell = response.clone();
             return caches
               .open(CACHE_NAME)
-              .then((cache) => cache.put("/", response.clone()))
+              .then((cache) => cache.put("/", shell))
               .then(() => precacheBuild().catch(() => {}));
           }
         })
