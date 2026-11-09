@@ -257,9 +257,10 @@ const Writer = () => {
 
   useEffect(() => {
     if (replyData.id && replyData.messageId && setReplyData && isWriterOpen) {
-      // A name still holding the default-From pre-fill would sign the reply
-      // with another mailbox's name; the default only names new messages.
-      if (!selectedMailbox && defaultFrom) {
+      // A name still holding the default-From pre-fill would sign a reply
+      // sent from another address with the default mailbox's name.
+      const replyFrom = replyData.to?.address ?? "";
+      if (defaultFrom && replyFrom.toLowerCase() !== defaultFrom.toLowerCase()) {
         const defaultName = displayNameFor(defaultFrom);
         setName((current) => (current === defaultName ? "" : current));
       }
@@ -317,7 +318,6 @@ const Writer = () => {
     setIsCcOpen,
     setIsBccOpen,
     includeOriginal,
-    selectedMailbox,
     defaultFrom,
     setName
   ]);

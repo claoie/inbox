@@ -153,12 +153,37 @@ const App = ({ user: session }: Props) => {
     "comfortable",
     (v) => (v === "compact" ? "compact" : "comfortable")
   );
-  const [signature, setSignature] = useLocalStorage("signature", "");
   const [includeOriginal, setIncludeOriginal] = useLocalStorage(
     "includeOriginal",
     true
   );
-  const [defaultFrom, setDefaultFrom] = useLocalStorage("defaultFrom", "");
+  // The signature and default From belong to whoever set them, so they are
+  // kept per user id: another user signing in on this browser starts blank,
+  // and the owner gets them back after signing out or a session expiry.
+  const [composeSettings, setComposeSettings] = useLocalStorage<
+    Record<string, { signature?: string; defaultFrom?: string }>
+  >("composeSettings", {});
+  const userKey = userInfo?.id ?? "";
+  const signature = composeSettings[userKey]?.signature ?? "";
+  const defaultFrom = composeSettings[userKey]?.defaultFrom ?? "";
+  const setUserComposeSetting = useCallback(
+    (field: "signature" | "defaultFrom", value: SetStateAction<string>) =>
+      setComposeSettings((all) => {
+        const mine = all[userKey] ?? {};
+        const next = value instanceof Function ? value(mine[field] ?? "") : value;
+        return { ...all, [userKey]: { ...mine, [field]: next } };
+      }),
+    [userKey, setComposeSettings]
+  );
+  const setSignature = useCallback(
+    (value: SetStateAction<string>) => setUserComposeSetting("signature", value),
+    [setUserComposeSetting]
+  );
+  const setDefaultFrom = useCallback(
+    (value: SetStateAction<string>) =>
+      setUserComposeSetting("defaultFrom", value),
+    [setUserComposeSetting]
+  );
   // Draft signal for the rail Compose dot (design doc §7): owned by the
   // Writer, which is the only component that sees the draft fields.
   const [hasDraft, setHasDraft] = useState(false);
@@ -258,8 +283,6 @@ const App = ({ user: session }: Props) => {
       setSelectedCategory(Category.AllMails);
       setIsWriterOpen(false);
       setIsSettingsOpen(false);
-      setSignature("");
-      setDefaultFrom("");
       setIsAccountsOpen(window.innerWidth > 1050);
       setReplyData({});
       setNewMailsTotal(0);
@@ -273,8 +296,6 @@ const App = ({ user: session }: Props) => {
     setSelectedCategory,
     setIsWriterOpen,
     setIsAccountsOpen,
-    setSignature,
-    setDefaultFrom,
     setReplyData,
     setNewMailsTotal
   ]);

@@ -488,6 +488,53 @@ describe("Writer compose settings", () => {
     }
   });
 
+  it("drops the default-From name once a mailbox is selected again before replying", async () => {
+    const { Category } = await import("client");
+    const mount = await mountWriter({
+      selectedAccount: "",
+      selectedCategory: Category.Search,
+      defaultFrom: "billing@example.com"
+    });
+    try {
+      await mount.update({ isWriterOpen: false });
+      // Clearing the search restores the parked mailbox.
+      await mount.update({
+        selectedAccount: "maple@example.com",
+        selectedCategory: Category.AllMails
+      });
+      await mount.update({ isWriterOpen: true, replyData: reply });
+      expect(inputByPlaceholder(mount.container, "name").value).toBe("");
+      expect(inputByPlaceholder(mount.container, "account").value).toBe("maple");
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("keeps the default-From name on a reply sent from that address", async () => {
+    const { Category } = await import("client");
+    const mount = await mountWriter({
+      selectedAccount: "",
+      selectedCategory: Category.Search,
+      defaultFrom: "billing@example.com"
+    });
+    try {
+      await mount.update({ isWriterOpen: false });
+      await mount.update({
+        isWriterOpen: true,
+        replyData: {
+          ...reply,
+          to: { address: "billing@example.com" } as ReplyData["to"]
+        }
+      });
+      expect(inputByPlaceholder(mount.container, "name").value).toBe("billing");
+      expect(inputByPlaceholder(mount.container, "account").value).toBe(
+        "billing"
+      );
+    } finally {
+      await mount.teardown();
+    }
+  });
+
   it("keeps a name the user typed when replying", async () => {
     const { Category } = await import("client");
     const mount = await mountWriter({
