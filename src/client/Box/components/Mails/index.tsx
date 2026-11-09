@@ -790,13 +790,14 @@ const RenderedMails = ({
   const pageSize = 4 + 8 * page;
   const hasMore = mailCount > pageSize;
   // A list shorter than the column never scrolls, so the scroll handler alone
-  // would never show the rest on a tall screen.
+  // would never show the rest on a tall screen. Compact rows shrink the list
+  // without changing how many rows it shows, so density re-runs the check too.
   useEffect(() => {
     if (!hasMore) return;
     loadMoreIfShort();
     window.addEventListener("resize", loadMoreIfShort);
     return () => window.removeEventListener("resize", loadMoreIfShort);
-  }, [hasMore, pageSize, loadMoreIfShort]);
+  }, [hasMore, pageSize, density, loadMoreIfShort]);
 
   if (query.isLoading) {
     return (
