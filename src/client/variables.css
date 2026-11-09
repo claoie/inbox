@@ -14,10 +14,9 @@
   --textBright: #d1d1d1; /* primary body copy */
   --textBrighter: #e8e8e8;
 
-  /* Semantic colors — destructive / warning / info. */
-  --red: #f43;
-  --orange: #f86828;
-  --blue: #4a90d9;
+  --red: #f43; /* unread badges and dots */
+  --orange: #f86828; /* warnings, errors, saved stars, search highlights */
+  --blue: #4a90d9; /* links, focus rings, primary buttons */
 
   --headerHeight: 50px;
   --bottomBarHeight: 72px;

@@ -13,6 +13,11 @@
     margin-bottom: 0.5rem;
   }
 
+  iframe {
+    border: none;
+    background-color: var(--panel);
+  }
+
   .attachment {
     z-index: 11;
     position: relative;
