@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { connect, createServer, Server, Socket } from "net";
-import { isTrustedProxy, parseProxyHeader, readProxyHeader } from "./proxy-protocol";
+import { parseProxyHeader, readProxyHeader } from "./proxy-protocol";
 
 const own = { address: "10.0.0.2", port: 40000 };
 
@@ -39,40 +39,6 @@ describe("parseProxyHeader", () => {
     ]) {
       expect([line, parseProxyHeader(line, own)]).toEqual([line, undefined]);
     }
-  });
-});
-
-describe("isTrustedProxy", () => {
-  it("trusts loopback and private networks", () => {
-    const trusted = [
-      "127.0.0.1",
-      "::ffff:127.0.0.1",
-      "10.1.2.3",
-      "172.16.0.1",
-      "172.31.255.254",
-      "192.168.1.1",
-      "::1",
-      "fd12:3456::1",
-      "fc00::1"
-    ];
-    expect(trusted.filter((address) => !isTrustedProxy(address))).toEqual([]);
-  });
-
-  it("refuses public addresses, the edges of the private ranges, and non-addresses", () => {
-    const untrusted = [
-      "8.8.8.8",
-      "::ffff:8.8.8.8",
-      "172.15.255.255",
-      "172.32.0.1",
-      "192.169.0.1",
-      "11.0.0.1",
-      "2001:db8::1",
-      "fc::1",
-      "fe80::1",
-      "",
-      "localhost"
-    ];
-    expect(untrusted.filter((address) => isTrustedProxy(address))).toEqual([]);
   });
 });
 

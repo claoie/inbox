@@ -1,4 +1,5 @@
 import { isIP, Socket } from "net";
+import { trustLoopbackAndPrivate } from "./http/request";
 
 /** Where a connection came from. */
 export interface Peer {
@@ -18,35 +19,6 @@ const MAX_HEADER_BYTES = 107;
 const HEADER_TIMEOUT_MS = 5000;
 
 const unmapped = (address = "") => address.replace(/^::ffff:/i, "");
-
-const PRIVATE_V4 = [
-  [10, 0, 0, 0, 8],
-  [127, 0, 0, 0, 8],
-  [172, 16, 0, 0, 12],
-  [192, 168, 0, 0, 16]
-];
-
-/**
- * Whether a connection from `address` may name another client: loopback or a
- * private network, where the proxy sits. A header from anywhere else is a
- * client trying to choose its own address.
- */
-export const isTrustedProxy = (address: string): boolean => {
-  const plain = unmapped(address);
-  if (isIP(plain) === 4) {
-    const value = plain.split(".").reduce((n, octet) => n * 256 + Number(octet), 0);
-    return PRIVATE_V4.some(([a, b, c, d, bits]) => {
-      const base = ((a * 256 + b) * 256 + c) * 256 + d;
-      const size = 2 ** (32 - bits);
-      return value >= base && value < base + size;
-    });
-  }
-  if (isIP(plain) === 6) {
-    const lower = plain.toLowerCase();
-    return lower === "::1" || /^f[cd][0-9a-f]{2}:/.test(lower);
-  }
-  return false;
-};
 
 const isPort = (value: string) => /^(0|[1-9]\d{0,4})$/.test(value) && Number(value) <= 65535;
 
@@ -81,7 +53,8 @@ export const parseProxyHeader = (line: string, own: Peer): Peer | undefined => {
 export const readProxyHeader = (socket: Socket, timeoutMs = HEADER_TIMEOUT_MS): Promise<Peer> =>
   new Promise((resolve, reject) => {
     const own = { address: unmapped(socket.remoteAddress), port: socket.remotePort ?? 0 };
-    if (!isTrustedProxy(own.address)) {
+    // A client anywhere else could name itself; only the proxy's network may.
+    if (!trustLoopbackAndPrivate(own.address)) {
       reject(new Error(`PROXY header from untrusted address ${own.address}`));
       return;
     }

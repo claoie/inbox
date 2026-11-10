@@ -116,6 +116,33 @@ without it Express sees a plaintext request and declines to set the cookie.
 Nothing other than the proxy needs to reach the app's HTTP port, so there is no
 reason to publish it on a public interface.
 
+### Mail ports behind a TCP proxy
+
+The SMTP and IMAP ports can sit behind a TCP proxy too, such as nginx's
+`stream` module, so that two copies of the server can run side by side while
+one replaces the other. Set `PROXY_PROTOCOL=true`, and have the proxy open
+every connection with a PROXY protocol v1 header:
+
+```
+stream {
+  server {
+    listen 25;
+    proxy_pass mail:25;
+    proxy_protocol on;
+  }
+  # ...one server per mail port. Set proxy_timeout above 35 minutes, or the
+  # proxy cuts IMAP IDLE connections (nginx's default is 10 minutes).
+}
+```
+
+The header is accepted only from the same loopback and private ranges as the
+HTTP forwarding headers. That doesn't stop anything else on those ranges from
+sending one: another container on the network, or a client reaching a port
+that is still published through Docker's port forwarding, can then name any
+client address. With the setting on, only the proxy should reach the mail
+ports. TLS is unaffected: the proxy passes it through, and the server
+terminates it as before.
+
 ### Environment Variables
 
 This app in default uses `.env` and `.env.local` to load environment variables. `.env` is included in the repository, intending to determine consistent variables that are related to React's build process, etc. `.env.local` is not included in the repository, intending to determine variables that differ by the app's host environment, external API credentials, etc. Additionally, we have an option to add another one as `.env.<NODE_ENV>` where you can set `NODE_ENV` in your terminal for example in Mac/Linux, `NODE_ENV=development` or in Windows cmd, `set NODE_ENV=development`.

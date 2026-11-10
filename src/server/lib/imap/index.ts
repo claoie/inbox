@@ -69,6 +69,21 @@ export const acceptProxied =
     );
   };
 
+/**
+ * The listener for one IMAP port: TLS from the first byte when given
+ * `tls`, and behind a TCP proxy (PROXY_PROTOCOL) a plain listener that reads
+ * the PROXY header first and runs any TLS handshake itself.
+ */
+export const createImapServer = (
+  listener: (socket: Socket) => void,
+  tls?: { key: Buffer; cert: Buffer }
+): Server => {
+  if (isProxyProtocolEnabled()) {
+    return createServer(acceptProxied(listener, tls && createSecureContext(tls)));
+  }
+  return tls ? createTLSServer(tls, listener) : createServer(listener);
+};
+
 const IMAP_MAX_CONNECTIONS = 100;
 
 export const getImapPort = () => Number(process.env.IMAP_PORT) || 143;
@@ -80,9 +95,7 @@ export const initializeImap = async () => {
   const imapServer = await new Promise<import("net").Server>((res) => {
     const port = getImapPort();
     const imapListener = getImapListener(false);
-    const server = createServer(
-      isProxyProtocolEnabled() ? acceptProxied(imapListener) : imapListener
-    );
+    const server = createImapServer(imapListener);
     server.maxConnections = IMAP_MAX_CONNECTIONS;
     server.listen(port, () => {
       logger.info("IMAP server listening", { component: "imap", port });
@@ -120,9 +133,7 @@ export const initializeImap = async () => {
         cert: readFileSync(credentials.cert)
       };
 
-      const server = isProxyProtocolEnabled()
-        ? createServer(acceptProxied(imapListener, createSecureContext(tlsOptions)))
-        : createTLSServer(tlsOptions, imapListener);
+      const server = createImapServer(imapListener, tlsOptions);
       server.maxConnections = IMAP_MAX_CONNECTIONS;
       server.listen(port, () => {
         logger.info("IMAP server listening over TLS", { component: "imap", port });

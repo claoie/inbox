@@ -4,10 +4,10 @@ import fs from "fs";
 import { connect, createServer, Server, Socket } from "net";
 import os from "os";
 import path from "path";
-import { connect as tlsConnect, createSecureContext, TLSSocket } from "tls";
+import { connect as tlsConnect, createSecureContext, Server as TlsServer, TLSSocket } from "tls";
 import { createTlsEnvFixture } from "test-helpers";
 import { setPeer } from "../proxy-protocol";
-import { acceptProxied } from "./index";
+import { acceptProxied, createImapServer } from "./index";
 import { ImapSession } from "./session";
 
 const HEADER = "PROXY TCP4 203.0.113.7 10.0.0.2 51000 143\r\n";
@@ -65,6 +65,42 @@ const recordingListener = () => {
 const until = async (check: () => boolean) => {
   for (let i = 0; i < 100 && !check(); i++) await new Promise((r) => setTimeout(r, 10));
 };
+
+describe("createImapServer", () => {
+  const original = process.env.PROXY_PROTOCOL;
+  afterEach(() => {
+    if (original === undefined) delete process.env.PROXY_PROTOCOL;
+    else process.env.PROXY_PROTOCOL = original;
+  });
+
+  const serve = async (server: Server) => {
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    return (server.address() as { port: number }).port;
+  };
+
+  it("hands a connection straight to IMAP when PROXY_PROTOCOL is unset", async () => {
+    delete process.env.PROXY_PROTOCOL;
+    const { seen, listener } = recordingListener();
+    const port = await serve(createImapServer(listener));
+    const client = await open(port);
+    expect(await readLine(client)).toBe("* OK ready\r\n");
+    expect(seen[0].address).toBe("127.0.0.1");
+  });
+
+  it("waits for the PROXY header when PROXY_PROTOCOL is true", async () => {
+    process.env.PROXY_PROTOCOL = "true";
+    const { seen, listener } = recordingListener();
+    const port = await serve(createImapServer(listener));
+    const client = await open(port);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(seen).toEqual([]);
+    const greeting = readLine(client);
+    client.write(HEADER);
+    expect(await greeting).toBe("* OK ready\r\n");
+    expect(seen[0].address).toBe("203.0.113.7");
+  });
+});
 
 describe("IMAP behind a PROXY protocol proxy", () => {
   it("hands over the socket reporting the header's client, with what followed the header", async () => {
@@ -139,6 +175,20 @@ describe.skipIf(!tempCert())("IMAP over TLS behind a PROXY protocol proxy", () =
     expect(seen[0].secure).toBe(true);
     client.write("A1 NOOP\r\n");
     expect(await seen[0].line).toBe("A1 NOOP\r\n");
+  });
+
+  it("serves TLS from the first byte unless PROXY_PROTOCOL is true", () => {
+    const original = process.env.PROXY_PROTOCOL;
+    const { key, cert } = tempCert()!;
+    try {
+      delete process.env.PROXY_PROTOCOL;
+      expect(createImapServer(() => {}, { key, cert })).toBeInstanceOf(TlsServer);
+      process.env.PROXY_PROTOCOL = "true";
+      expect(createImapServer(() => {}, { key, cert })).not.toBeInstanceOf(TlsServer);
+    } finally {
+      if (original === undefined) delete process.env.PROXY_PROTOCOL;
+      else process.env.PROXY_PROTOCOL = original;
+    }
   });
 
   it("keeps the client the socket reported across STARTTLS", async () => {
