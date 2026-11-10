@@ -624,6 +624,17 @@ describe("Notifications switch (real App behavior)", () => {
       });
       expect(toggle().checked).toBe(false);
 
+      // Another tab navigating writes its own keys; they mustn't touch the switch.
+      await mount.act(async () => {
+        window.dispatchEvent(
+          new StorageEvent("storage", {
+            key: "selectedCategory",
+            newValue: JSON.stringify(Category.Sent)
+          })
+        );
+      });
+      expect(toggle().checked).toBe(false);
+
       await refocusADayLater(mount);
       expect(subscribes()).toBe(1);
     } finally {
