@@ -492,3 +492,142 @@ describe("Settings page (real App behavior)", () => {
     }
   });
 });
+
+describe("Notifications switch (real App behavior)", () => {
+  type Globals = Record<string, unknown>;
+  let gets: string[];
+  let restorePush: () => void;
+
+  // A browser with push notifications granted and no subscription yet, so
+  // every subscribe goes as far as fetching the server's public key.
+  beforeEach(() => {
+    gets = [];
+    const mockedGet = call.get;
+    call.get = (async (url: string) => {
+      gets.push(url);
+      if (url === "/api/users/login")
+        return { status: "success", body: { user: { id: "user-1" } } };
+      return mockedGet(url);
+    }) as typeof call.get;
+    const registration = {
+      pushManager: {
+        getSubscription: async () => null,
+        subscribe: async () => ({})
+      }
+    };
+    const win = window as unknown as Globals;
+    const previous = {
+      Notification: win.Notification,
+      PushManager: win.PushManager,
+      serviceWorker: Object.getOwnPropertyDescriptor(navigator, "serviceWorker"),
+      post: call.post,
+      now: Date.now
+    };
+    win.Notification = { permission: "granted" };
+    win.PushManager = function PushManager() {};
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: {
+        register: async () => registration,
+        ready: Promise.resolve(registration),
+        getRegistration: async () => registration
+      }
+    });
+    call.post = (async () => ({ status: "success", body: "sub-1" })) as typeof call.post;
+    restorePush = () => {
+      win.Notification = previous.Notification;
+      win.PushManager = previous.PushManager;
+      if (previous.serviceWorker)
+        Object.defineProperty(navigator, "serviceWorker", previous.serviceWorker);
+      else delete (navigator as unknown as Globals).serviceWorker;
+      call.post = previous.post;
+      Date.now = previous.now;
+    };
+  });
+  afterEach(() => restorePush());
+
+  const subscribes = () =>
+    gets.filter((url) => url === "/api/push/public-key").length;
+
+  const settle = async (mount: Awaited<ReturnType<typeof mountApp>>) => {
+    for (let i = 0; i < 10; i++) {
+      await mount.act(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+      });
+    }
+  };
+
+  // The once-a-day subscribe that runs when the window regains focus.
+  const refocusADayLater = async (
+    mount: Awaited<ReturnType<typeof mountApp>>
+  ) => {
+    const realNow = Date.now;
+    const later = realNow() + 2 * 24 * 60 * 60 * 1000;
+    Date.now = () => later;
+    await mount.act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await settle(mount);
+    Date.now = realNow;
+  };
+
+  it("signing in and a later refocus subscribe while the switch is on", async () => {
+    const mount = await mountApp();
+    try {
+      await settle(mount);
+      expect(subscribes()).toBe(1);
+      await refocusADayLater(mount);
+      expect(subscribes()).toBe(2);
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("signing in doesn't subscribe while the switch is off", async () => {
+    window.localStorage.setItem("notificationsEnabled", JSON.stringify(false));
+    const mount = await mountApp();
+    try {
+      await settle(mount);
+      expect(subscribes()).toBe(0);
+      await refocusADayLater(mount);
+      expect(subscribes()).toBe(0);
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("turning it off in another tab shows it off here and stops this tab subscribing", async () => {
+    const mount = await mountApp();
+    try {
+      await settle(mount);
+      expect(subscribes()).toBe(1);
+      await mount.click(
+        await mount.waitFor(() =>
+          mount.container.querySelector('.categories [aria-label="Settings"]')
+        )
+      );
+      const toggle = () =>
+        mount.container.querySelector(
+          "#settings-notifications"
+        ) as HTMLInputElement;
+      expect(toggle().checked).toBe(true);
+
+      window.localStorage.setItem("notificationsEnabled", "false");
+      await mount.act(async () => {
+        window.dispatchEvent(
+          new StorageEvent("storage", {
+            key: "notificationsEnabled",
+            oldValue: "true",
+            newValue: "false"
+          })
+        );
+      });
+      expect(toggle().checked).toBe(false);
+
+      await refocusADayLater(mount);
+      expect(subscribes()).toBe(1);
+    } finally {
+      await mount.teardown();
+    }
+  });
+});

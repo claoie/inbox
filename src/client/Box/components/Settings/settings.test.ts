@@ -313,6 +313,18 @@ describe("Settings › Notifications", () => {
     }
   });
 
+  it("shows off when it was turned off, even with notifications allowed", async () => {
+    installPush("granted");
+    const mount = await mountSettings("comfortable", { notificationsEnabled: false });
+    try {
+      const toggle = notificationsSwitch(mount.container);
+      expect(toggle.checked).toBe(false);
+      expect(toggle.disabled).toBe(false);
+    } finally {
+      await mount.teardown();
+    }
+  });
+
   it("turning it off unsubscribes this browser", async () => {
     installPush("granted");
     window.localStorage.setItem("push_subscription_id", JSON.stringify("sub-1"));

@@ -196,6 +196,15 @@ const App = ({ user: session }: Props) => {
   // Read by the sign-in and refocus subscribes, which run outside render.
   const notificationsEnabledRef = useRef(notificationsEnabled);
   notificationsEnabledRef.current = notificationsEnabled;
+  // The switch covers the whole browser, so follow a change made in another tab.
+  useEffect(() => {
+    const followOtherTabs = (event: StorageEvent) => {
+      if (event.key !== "notificationsEnabled") return;
+      setNotificationsEnabled(event.newValue !== "false");
+    };
+    window.addEventListener("storage", followOtherTabs);
+    return () => window.removeEventListener("storage", followOtherTabs);
+  }, [setNotificationsEnabled]);
   // Draft signal for the rail Compose dot (design doc §7): owned by the
   // Writer, which is the only component that sees the draft fields.
   const [hasDraft, setHasDraft] = useState(false);
