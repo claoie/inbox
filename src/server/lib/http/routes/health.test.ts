@@ -7,7 +7,8 @@ const makeSocketMock = () => {
   const socket: Record<string, unknown> = {};
   const handlers: Record<string, () => void> = {};
   socket.destroy = mock(() => {});
-  socket.end = mock((cb?: () => void) => { if (cb) cb(); return socket; });
+  socket.end = mock((arg?: unknown) => { if (typeof arg === "function") arg(); return socket; });
+  socket.write = mock(() => true);
   socket.setTimeout = mock(() => socket);
   socket.on = mock((event: string, cb: () => void) => {
     handlers[event] = cb;
@@ -27,11 +28,14 @@ let tlsSocketMock = makeSocketMock();
 let netBehavior: "connect" | "error" | "timeout" = "connect";
 let tlsBehavior: "connect" | "error" | "timeout" = "connect";
 
-const mockCreateConnection = mock((_opts: unknown, cb: () => void) => {
+const netSockets: Record<string, unknown>[] = [];
+
+const mockCreateConnection = mock((_opts: unknown, cb?: () => void) => {
   const socket = makeSocketMock();
   netSocketMock = socket;
+  netSockets.push(socket);
   setTimeout(() => {
-    if (netBehavior === "connect") cb();
+    if (netBehavior === "connect") cb?.();
     else if (netBehavior === "error") (socket as { _handlers: Record<string, () => void> })._handlers["error"]?.();
     else if (netBehavior === "timeout") (socket as { _handlers: Record<string, () => void> })._handlers["timeout"]?.();
   }, 0);
@@ -126,6 +130,7 @@ const ORIGINAL_ENV = {
   SMTPS_PORT: process.env.SMTPS_PORT,
   SMTP_SUBMISSION_PORT: process.env.SMTP_SUBMISSION_PORT,
   IMAP_TLS_PORT: process.env.IMAP_TLS_PORT,
+  PROXY_PROTOCOL: process.env.PROXY_PROTOCOL,
 };
 
 const restoreEnv = () => {
@@ -153,6 +158,8 @@ describe("health GET /", () => {
     delete process.env.SMTPS_PORT;
     delete process.env.SMTP_SUBMISSION_PORT;
     delete process.env.IMAP_TLS_PORT;
+    delete process.env.PROXY_PROTOCOL;
+    netSockets.length = 0;
   });
 
   afterAll(() => {
@@ -178,6 +185,47 @@ describe("health GET /", () => {
     expect(body.body.checks.http).toBe("ok");
     expect(body.body.checks["smtp:465"]).toBe("ok");
     expect(body.body.checks["imap:993"]).toBe("ok");
+  });
+
+  it("opens each probe with a PROXY header when PROXY_PROTOCOL is set", async () => {
+    process.env.PROXY_PROTOCOL = "true";
+    const { default: handleHealth } = await import("./health");
+    const res = await invokeHealthGet(handleHealth);
+
+    expect(res._code).toBe(200);
+    const calls = (socket: Record<string, unknown>, name: string) =>
+      (socket[name] as { mock: { calls: unknown[][] } }).mock.calls;
+    // Plain and STARTTLS ports: SMTP 25, IMAP 143, submission 587.
+    const plain = netSockets.filter((socket) => calls(socket, "end").length > 0);
+    expect(plain.map((socket) => calls(socket, "end")[0][0])).toEqual([
+      "PROXY UNKNOWN\r\n",
+      "PROXY UNKNOWN\r\n",
+      "PROXY UNKNOWN\r\n"
+    ]);
+    // Implicit-TLS ports: the header goes on the raw socket the handshake then runs over.
+    const underTls = netSockets.filter((socket) => calls(socket, "write").length > 0);
+    expect(underTls.map((socket) => calls(socket, "write")[0][0])).toEqual([
+      "PROXY UNKNOWN\r\n",
+      "PROXY UNKNOWN\r\n"
+    ]);
+    const tlsOptions = mockTlsConnect.mock.calls.map((call) => (call[0] as { socket?: unknown }).socket);
+    expect(tlsOptions).toEqual(underTls);
+  });
+
+  it("sends no PROXY header when PROXY_PROTOCOL is unset", async () => {
+    const { default: handleHealth } = await import("./health");
+    const res = await invokeHealthGet(handleHealth);
+
+    expect(res._code).toBe(200);
+    const used = (socket: Record<string, unknown>, name: string) =>
+      (socket[name] as { mock: { calls: unknown[][] } }).mock.calls.length;
+    expect(netSockets.length).toBe(3);
+    expect(netSockets.filter((socket) => used(socket, "end") || used(socket, "write"))).toEqual([]);
+    expect(netSockets.filter((socket) => used(socket, "destroy")).length).toBe(3);
+    expect(mockTlsConnect.mock.calls.map((call) => (call[0] as { socket?: unknown }).socket)).toEqual([
+      undefined,
+      undefined
+    ]);
   });
 
   it("returns 503 when DB is unhealthy", async () => {

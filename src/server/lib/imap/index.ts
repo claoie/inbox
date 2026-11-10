@@ -1,5 +1,5 @@
 import { createServer, Server, Socket } from "net";
-import { createServer as createTLSServer } from "tls";
+import { createServer as createTLSServer, SecureContext, TLSSocket, createSecureContext } from "tls";
 import { ImapRequestHandler } from "./handler";
 import { getCapabilities } from "./capabilities";
 import { readFileSync } from "fs";
@@ -9,6 +9,7 @@ import { sendAlarm } from "../alarm";
 import { boundCrashStep } from "../crash-alarm";
 import { CLOSE_FLUSH_TIMEOUT_MS } from "./close-socket";
 import { shutdownImapSessions } from "./session-registry";
+import { isProxyProtocolEnabled, readProxyHeader, setPeer } from "../proxy-protocol";
 
 export { idleManager } from "./idle-manager";
 
@@ -22,6 +23,52 @@ export const getImapListener = (isTls: boolean) => {
   };
 };
 
+/** How long an implicit-TLS client may take to complete its handshake. */
+const HANDSHAKE_TIMEOUT_MS = 60 * 1000;
+
+/**
+ * Takes a connection behind a TCP proxy: reads the PROXY header so the socket
+ * reports the client's address, runs the TLS handshake itself on the
+ * implicit-TLS port (`secureContext`), then hands the socket to `listener`.
+ */
+export const acceptProxied =
+  (listener: (socket: Socket) => void, secureContext?: SecureContext) =>
+  (socket: Socket) => {
+    socket.on("error", () => {});
+    const from = socket.remoteAddress?.replace(/^::ffff:/, "");
+    readProxyHeader(socket).then(
+      (peer) => {
+        setPeer(socket, peer);
+        if (!secureContext) {
+          listener(socket);
+          socket.resume();
+          return;
+        }
+        const secureSocket = new TLSSocket(socket, { isServer: true, secureContext });
+        setPeer(secureSocket, peer);
+        const fail = () => secureSocket.destroy();
+        secureSocket.once("error", fail);
+        secureSocket.once("close", fail);
+        secureSocket.setTimeout(HANDSHAKE_TIMEOUT_MS, fail);
+        secureSocket.once("secure", () => {
+          secureSocket.removeListener("error", fail);
+          secureSocket.removeListener("close", fail);
+          secureSocket.removeListener("timeout", fail);
+          secureSocket.setTimeout(0);
+          listener(secureSocket);
+        });
+      },
+      (error: Error) => {
+        socket.destroy();
+        logger.warn("IMAP: connection dropped before its PROXY header", {
+          component: "imap",
+          from,
+          reason: error.message
+        });
+      }
+    );
+  };
+
 const IMAP_MAX_CONNECTIONS = 100;
 
 export const getImapPort = () => Number(process.env.IMAP_PORT) || 143;
@@ -33,7 +80,9 @@ export const initializeImap = async () => {
   const imapServer = await new Promise<import("net").Server>((res) => {
     const port = getImapPort();
     const imapListener = getImapListener(false);
-    const server = createServer(imapListener);
+    const server = createServer(
+      isProxyProtocolEnabled() ? acceptProxied(imapListener) : imapListener
+    );
     server.maxConnections = IMAP_MAX_CONNECTIONS;
     server.listen(port, () => {
       logger.info("IMAP server listening", { component: "imap", port });
@@ -71,7 +120,9 @@ export const initializeImap = async () => {
         cert: readFileSync(credentials.cert)
       };
 
-      const server = createTLSServer(tlsOptions, imapListener);
+      const server = isProxyProtocolEnabled()
+        ? createServer(acceptProxied(imapListener, createSecureContext(tlsOptions)))
+        : createTLSServer(tlsOptions, imapListener);
       server.maxConnections = IMAP_MAX_CONNECTIONS;
       server.listen(port, () => {
         logger.info("IMAP server listening over TLS", { component: "imap", port });

@@ -2,6 +2,8 @@ import { EventEmitter } from "events";
 import { createServer, Server, Socket } from "net";
 import { hostname } from "os";
 import { createSecureContext, SecureContext, TLSSocket } from "tls";
+import { logger } from "../logger";
+import { Peer, readProxyHeader } from "../proxy-protocol";
 import { SmtpConnection } from "./connection";
 import type { SmtpServerOptions } from "./types";
 
@@ -99,14 +101,42 @@ export class SmtpServer extends EventEmitter {
 
   private accept(socket: Socket): void {
     socket.on("error", () => {});
-    const remote = {
+    const own = {
       address: (socket.remoteAddress ?? "").replace(/^::ffff:/, ""),
-      port: socket.remotePort ?? 0,
+      port: socket.remotePort ?? 0
+    };
+    if (!this.options.proxyProtocol) {
+      this.start(socket, own);
+      return;
+    }
+    this.handshaking.add(socket);
+    readProxyHeader(socket).then(
+      (peer) => {
+        this.handshaking.delete(socket);
+        this.start(socket, peer);
+      },
+      (err: Error) => {
+        this.handshaking.delete(socket);
+        socket.destroy();
+        logger.warn("SMTP: connection dropped before its PROXY header", {
+          component: "smtp",
+          from: own.address,
+          reason: err.message
+        });
+      }
+    );
+  }
+
+  private start(socket: Socket, peer: Peer): void {
+    const remote = {
+      address: peer.address,
+      port: peer.port,
       local: (socket.localAddress ?? "").replace(/^::ffff:/, ""),
       localPort: socket.localPort ?? 0
     };
     if (!this.options.secure) {
       this.connect(socket, remote);
+      socket.resume();
       return;
     }
     if (!this.secureContext) {

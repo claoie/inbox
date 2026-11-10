@@ -26,6 +26,7 @@ import { sendAlarm } from "./alarm";
 import { isPeerCertRejection } from "./peer-cert-rejection";
 import { logger } from "./logger";
 import { getTlsCredentials } from "./tls";
+import { isProxyProtocolEnabled } from "./proxy-protocol";
 import { registerSmtpServer, unregisterSmtpServer } from "./smtp-registry";
 import { MAX_MESSAGE_BYTES } from "./message-size";
 import { ATTACHMENT_FOLDER } from "./mails/util";
@@ -940,6 +941,7 @@ export const initializeSmtp = async () => {
     onData,
     maxClients: SMTP_MAX_CLIENTS,
     size: MAX_MESSAGE_BYTES,
+    proxyProtocol: isProxyProtocolEnabled(),
     closeTimeout: SMTP_CLOSE_TIMEOUT_MS
   };
 

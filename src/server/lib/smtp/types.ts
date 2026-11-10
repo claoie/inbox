@@ -49,6 +49,8 @@ export type SmtpAuthCallback = (
 export interface SmtpServerOptions {
   /** Implicit TLS: the handshake runs before the greeting (port 465). */
   secure: boolean;
+  /** Each connection starts with a PROXY protocol v1 header naming the client. */
+  proxyProtocol?: boolean;
   /** Accept AUTH before STARTTLS on a cleartext connection. */
   allowInsecureAuth?: boolean;
   /** Server name for the greeting; the host name when unset. */

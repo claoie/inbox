@@ -627,3 +627,79 @@ describe.skipIf(!tempCert())("SMTP over TLS", () => {
     expect(errors[0].remoteAddress).toBe("127.0.0.1");
   });
 });
+
+describe("SMTP behind a PROXY protocol proxy", () => {
+  const HEADER = "PROXY TCP4 203.0.113.7 10.0.0.2 51000 25\r\n";
+
+  it("takes the client from the header for the session and the EHLO reply", async () => {
+    const { port, deliveries } = await startServer({ proxyProtocol: true });
+    const c = await connectTo(port);
+    c.write(HEADER);
+    expect(await c.reply()).toBe("220 mx.test ESMTP");
+    expect(await c.command("EHLO c")).toContain("[203.0.113.7]");
+    expect(await c.command("MAIL FROM:<a@x.org>")).toBe("250 Accepted");
+    expect(await c.command("RCPT TO:<b@y.org>")).toBe("250 Accepted");
+    expect(await c.command("DATA")).toBe("354 End data with <CR><LF>.<CR><LF>");
+    c.write(`${MESSAGE}.\r\n`);
+    expect(await c.reply()).toBe("250 OK: message queued");
+    expect(deliveries[0].session.remoteAddress).toBe("203.0.113.7");
+    expect(deliveries[0].session.remotePort).toBe(51000);
+  });
+
+  it("drops a connection that doesn't start with a header, without reporting it", async () => {
+    const { port, errors } = await startServer({ proxyProtocol: true });
+    const c = await connectTo(port);
+    c.write("EHLO c\r\n");
+    expect(await c.reply()).toBe("<closed>");
+    expect(errors).toEqual([]);
+  });
+
+  it("still refuses a client that talks before the greeting", async () => {
+    const { port } = await startServer({ proxyProtocol: true });
+    const c = await connectTo(port);
+    c.write(HEADER + "EHLO early\r\n");
+    expect(await c.reply()).toBe("421 mx.test You talk too soon");
+  });
+});
+
+describe.skipIf(!tempCert())("SMTP over TLS behind a PROXY protocol proxy", () => {
+  const tlsOptions = () => ({ ...tempCert()!, minVersion: "TLSv1.2" as const });
+
+  it("runs the implicit-TLS handshake after the header, even sent in one write with the ClientHello", async () => {
+    const { port, deliveries } = await startServer({ ...tlsOptions(), secure: true, proxyProtocol: true });
+    const raw = netConnect(port, "127.0.0.1");
+    await new Promise((resolve) => raw.once("connect", resolve));
+    raw.cork();
+    raw.write("PROXY TCP6 2001:db8::7 fd00::2 51000 465\r\n");
+    const socket = tlsConnect({ socket: raw, rejectUnauthorized: false }) as TLSSocket;
+    process.nextTick(() => raw.uncork());
+    const c = client(socket);
+    expect(await c.reply()).toBe("220 mx.test ESMTP");
+    expect(await c.command("EHLO c")).toContain("[2001:db8::7]");
+    expect(await c.command("MAIL FROM:<a@x.org>")).toBe("250 Accepted");
+    expect(await c.command("RCPT TO:<b@y.org>")).toBe("250 Accepted");
+    expect(await c.command("DATA")).toBe("354 End data with <CR><LF>.<CR><LF>");
+    c.write(`${MESSAGE}.\r\n`);
+    expect(await c.reply()).toBe("250 OK: message queued");
+    expect(deliveries[0].session.remoteAddress).toBe("2001:db8::7");
+    expect(deliveries[0].session.secure).toBe(true);
+  });
+
+  it("keeps the client from the header after STARTTLS", async () => {
+    const { port, deliveries } = await startServer({ ...tlsOptions(), proxyProtocol: true });
+    const c = await connectTo(port);
+    c.write("PROXY TCP4 203.0.113.7 10.0.0.2 51000 587\r\n");
+    expect(await c.reply()).toBe("220 mx.test ESMTP");
+    await c.command("EHLO c");
+    expect(await c.command("STARTTLS")).toBe("220 Ready to start TLS");
+    await c.upgrade();
+    await c.command("EHLO c");
+    expect(await c.command("MAIL FROM:<a@x.org>")).toBe("250 Accepted");
+    expect(await c.command("RCPT TO:<b@y.org>")).toBe("250 Accepted");
+    expect(await c.command("DATA")).toBe("354 End data with <CR><LF>.<CR><LF>");
+    c.write(`${MESSAGE}.\r\n`);
+    expect(await c.reply()).toBe("250 OK: message queued");
+    expect(deliveries[0].session.remoteAddress).toBe("203.0.113.7");
+    expect(deliveries[0].session.secure).toBe(true);
+  });
+});

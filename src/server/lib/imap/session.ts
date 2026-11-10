@@ -23,6 +23,7 @@ import {
 import { formatFlags } from "./util";
 import { getCapabilities } from "./capabilities";
 import { getTlsCredentials } from "../tls";
+import { setPeer } from "../proxy-protocol";
 import { ImapRequestHandler } from "./handler";
 import { writeChunkedToSocket, writeStreamToSocket } from "./chunked-write";
 import { imapTrace } from "./trace";
@@ -921,6 +922,11 @@ export class ImapSession {
     this.write(`${tag} OK Begin TLS negotiation now\r\n`);
 
     const secureSocket = new TLSSocket(plainSocket, { isServer: true, secureContext });
+    // Bun's TLS socket reads its peer off the connection, which behind a proxy
+    // is the proxy; keep the client the plain socket already reported.
+    if (plainSocket.remoteAddress) {
+      setPeer(secureSocket, { address: plainSocket.remoteAddress, port: plainSocket.remotePort ?? 0 });
+    }
 
     // RFC 2595 §3.1: the session restarts clean after the upgrade, and the new
     // one must no longer offer STARTTLS. `setSocket` also installs the socket

@@ -1,15 +1,21 @@
-import { createConnection } from "net";
+import { createConnection, Socket } from "net";
 import { connect as tlsConnect } from "tls";
 import { pool } from "../../postgres/client";
 import { isTlsAvailable } from "../../tls";
+import { isProxyProtocolEnabled } from "../../proxy-protocol";
 import type { HttpRequest } from "../request";
 import { json } from "../respond";
+
+// Behind a TCP proxy every connection must open with a PROXY header, so the
+// probes send one too; UNKNOWN keeps the probe's own address.
+const PROBE_HEADER = "PROXY UNKNOWN\r\n";
 
 /** TCP check — for plain or STARTTLS ports (just verify port is open). */
 const checkPort = (port: number, host = "127.0.0.1"): Promise<boolean> =>
   new Promise((resolve) => {
     const socket = createConnection({ port, host }, () => {
-      socket.destroy();
+      if (isProxyProtocolEnabled()) socket.end(PROBE_HEADER);
+      else socket.destroy();
       resolve(true);
     });
     socket.setTimeout(1000);
@@ -27,8 +33,14 @@ const checkPort = (port: number, host = "127.0.0.1"): Promise<boolean> =>
  */
 const checkTlsPort = (port: number, host = "127.0.0.1"): Promise<boolean> =>
   new Promise((resolve) => {
+    let proxied: Socket | undefined;
+    if (isProxyProtocolEnabled()) {
+      proxied = createConnection({ port, host });
+      proxied.on("error", () => resolve(false));
+      proxied.write(PROBE_HEADER);
+    }
     const socket = tlsConnect(
-      { port, host, rejectUnauthorized: false },
+      proxied ? { socket: proxied, rejectUnauthorized: false } : { port, host, rejectUnauthorized: false },
       () => {
         // socket.end() sends TLS close_notify — a clean shutdown.
         // socket.destroy() aborts the connection, which makes the SMTP server
