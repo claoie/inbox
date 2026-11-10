@@ -2565,18 +2565,20 @@ describe("initializeSmtp configuration", () => {
     }
   });
 
-  // A recipient check the listener was never handed refuses nothing, and no test
-  // that calls the handler directly can see that. Driving the registered one is
-  // what ties the two together.
   it("asks every listener for a PROXY header only when PROXY_PROTOCOL is true", async () => {
     const initializeSmtp = await loadInitializeSmtp();
     delete process.env.PROXY_PROTOCOL;
     await initializeSmtp();
+    process.env.PROXY_PROTOCOL = "false";
+    await initializeSmtp();
     process.env.PROXY_PROTOCOL = "true";
     await initializeSmtp();
-    expect(createdOptions.map((options) => options.proxyProtocol)).toEqual([false, true]);
+    expect(createdOptions.map((options) => options.proxyProtocol)).toEqual([false, false, true]);
   });
 
+  // A recipient check the listener was never handed refuses nothing, and no test
+  // that calls the handler directly can see that. Driving the registered one is
+  // what ties the two together.
   it("registers a recipient check that refuses a mailbox it does not hold", async () => {
     process.env.EMAIL_DOMAIN = "test.com";
     mockGetUser.mockReset();

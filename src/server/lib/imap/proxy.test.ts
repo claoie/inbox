@@ -177,6 +177,29 @@ describe.skipIf(!tempCert())("IMAP over TLS behind a PROXY protocol proxy", () =
     expect(await seen[0].line).toBe("A1 NOOP\r\n");
   });
 
+  it("runs the TLS handshake after the header on the implicit-TLS listener when PROXY_PROTOCOL is true", async () => {
+    const original = process.env.PROXY_PROTOCOL;
+    process.env.PROXY_PROTOCOL = "true";
+    try {
+      const { seen, listener } = recordingListener();
+      const { key, cert } = tempCert()!;
+      const server = createImapServer(listener, { key, cert });
+      servers.push(server);
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const port = (server.address() as { port: number }).port;
+      const raw = await open(port);
+      raw.write("PROXY TCP4 203.0.113.7 10.0.0.2 51000 993\r\n");
+      const client = tlsConnect({ socket: raw, rejectUnauthorized: false });
+      sockets.push(client);
+      expect(await readLine(client)).toBe("* OK ready\r\n");
+      expect(seen[0].secure).toBe(true);
+      expect(seen[0].address).toBe("203.0.113.7");
+    } finally {
+      if (original === undefined) delete process.env.PROXY_PROTOCOL;
+      else process.env.PROXY_PROTOCOL = original;
+    }
+  });
+
   it("serves TLS from the first byte unless PROXY_PROTOCOL is true", () => {
     const original = process.env.PROXY_PROTOCOL;
     const { key, cert } = tempCert()!;

@@ -10,6 +10,48 @@ import {
   trustNoProxy,
 } from "./request";
 
+describe("trustLoopbackAndPrivate", () => {
+  it("trusts loopback and the private ranges, edges included", () => {
+    const trusted = [
+      "127.0.0.1",
+      "127.255.255.255",
+      "::ffff:127.0.0.1",
+      "10.0.0.0",
+      "10.255.255.255",
+      "172.16.0.0",
+      "172.31.255.255",
+      "192.168.0.0",
+      "192.168.255.255",
+      "::1",
+      "fc00::1",
+      "fdff:ffff::1"
+    ];
+    expect(trusted.filter((address) => !trustLoopbackAndPrivate(address))).toEqual([]);
+  });
+
+  it("refuses the addresses just outside each range, and non-addresses", () => {
+    const untrusted = [
+      "126.255.255.255",
+      "128.0.0.0",
+      "9.255.255.255",
+      "11.0.0.0",
+      "172.15.255.255",
+      "172.32.0.0",
+      "192.167.255.255",
+      "192.169.0.0",
+      "100.64.0.1",
+      "::ffff:8.8.8.8",
+      "::2",
+      "fbff:ffff::1",
+      "fe00::1",
+      "fe80::1",
+      "",
+      "localhost"
+    ];
+    expect(untrusted.filter((address) => trustLoopbackAndPrivate(address))).toEqual([]);
+  });
+});
+
 describe("resolveClientIp", () => {
   const trust = trustLoopbackAndPrivate;
 
