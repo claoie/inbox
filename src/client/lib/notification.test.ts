@@ -105,6 +105,23 @@ describe("Notifier.unsubscribe", () => {
     expect(unsubscribed).toBe(1);
   });
 
+  it("still unsubscribes the browser when the server can't be reached", async () => {
+    installPush();
+    call.delete = saved.delete;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      throw new TypeError("Failed to fetch");
+    }) as unknown as typeof fetch;
+    window.localStorage.setItem("push_subscription_id", JSON.stringify("sub-3"));
+    try {
+      await new Notifier().unsubscribe();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(window.localStorage.getItem("push_subscription_id")).toBeNull();
+    expect(unsubscribed).toBe(1);
+  });
+
   it("still drops the server's subscription where push is unavailable", async () => {
     window.localStorage.setItem("push_subscription_id", JSON.stringify("sub-2"));
     await new Notifier().unsubscribe();
