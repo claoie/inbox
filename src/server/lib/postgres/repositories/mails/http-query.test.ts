@@ -394,15 +394,19 @@ describe("buildSearchMailsQuery", () => {
     const headerList = buildMailHeadersQuery(USER, ADDRESS, headerOptions())
       .sql.match(/SELECT ([\s\S]*?) FROM mails/)![1];
     const searchList = sql.match(/SELECT ([\s\S]*?) FROM mails/)![1];
+    const headerItems = topLevelItems(headerList);
     const items = topLevelItems(searchList);
-    expect(items.slice(0, topLevelItems(headerList).length)).toEqual(
-      topLevelItems(headerList)
-    );
-    for (const body of ["*", "text", "html", "attachments"]) {
-      expect(items).not.toContain(body);
-    }
+    expect(items).toHaveLength(headerItems.length + 3);
+    expect(items.slice(0, headerItems.length)).toEqual(headerItems);
+    expect(items.slice(headerItems.length).map(alias)).toEqual([
+      "rank",
+      "subject_highlight",
+      "text_highlight",
+    ]);
   });
 });
+
+const alias = (item: string): string => item.match(/\bas (\w+)$/i)?.[1] ?? item;
 
 const topLevelItems = (selectList: string): string[] => {
   const items: string[] = [];
