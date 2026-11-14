@@ -278,7 +278,7 @@ export const buildSearchMailsQuery = (
   // Use PostgreSQL full-text search with ranking and highlights
   const sql = `
       SELECT 
-        *,
+        ${headerColumns},
         ts_rank(search_vector, plainto_tsquery('english', $2)) as rank,
         ts_headline('english', subject, plainto_tsquery('english', $2), 
           'StartSel=<em>, StopSel=</em>, MaxWords=50, MinWords=10') as subject_highlight,

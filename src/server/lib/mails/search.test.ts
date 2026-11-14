@@ -44,7 +44,7 @@ describe("searchMail", () => {
     expect(mockSearchMails).toHaveBeenCalledWith("user-123", "test", "subject");
   });
 
-  it("should map SearchMailModel to MailHeaderData", async () => {
+  it("should map SearchMailResult to MailHeaderData", async () => {
     const mockMailModel = {
       mail_id: "mail-abc",
       subject: "Test Subject",
@@ -75,9 +75,8 @@ describe("searchMail", () => {
   });
 
   it("should map envelope_to when present", async () => {
-    // Search rows come from SELECT *, so the envelope recipient is on the
-    // row; a BCC delivery's search hit resolves its account the same way
-    // the list rows do.
+    // A BCC delivery's search hit resolves its account the same way the
+    // list rows do.
     const mockMailModel = {
       mail_id: "mail-envelope",
       subject: "BCC Email",
@@ -105,6 +104,23 @@ describe("searchMail", () => {
     expect(results[0].envelopeTo?.value).toEqual([
       { address: "b@example.com" },
     ]);
+  });
+
+  it("builds the snippet from the bounded text prefix", async () => {
+    mockSearchMails.mockResolvedValue([
+      {
+        mail_id: "m-snippet",
+        subject: "s",
+        date: "2024-01-01T00:00:00Z",
+        read: false,
+        saved: false,
+        sent: false,
+        text_prefix: "Hello there\n> quoted line",
+      },
+    ] as never);
+
+    const results = await searchMail(mockUser, "hello");
+    expect(results.map((r) => r.snippet)).toEqual(["Hello there"]);
   });
 
   it("should handle null from/to addresses gracefully", async () => {

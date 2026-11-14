@@ -1,6 +1,5 @@
 import { logger } from "../../../logger";
 import { pool } from "../../client";
-import { MailModel } from "../../models";
 import {
   GetMailHeadersOptions,
   UnifiedMailHeadersOptions,
@@ -184,41 +183,40 @@ export const getUnifiedMailHeadersDelta = async (
   }
 };
 
-export interface SearchMailModel extends MailModel {
-  highlight?: {
+export interface SearchMailResult extends MailHeaderResult {
+  highlight: {
     subject?: string[];
     text?: string[];
   };
-  rank?: number;
+  rank: number;
 }
 
 export const searchMails = async (
   user_id: string,
   searchTerm: string,
   _field?: string
-): Promise<SearchMailModel[]> => {
+): Promise<SearchMailResult[]> => {
   try {
     const { sql, values } = buildSearchMailsQuery(user_id, searchTerm);
 
-    interface SearchRow {
+    interface SearchRow extends MailHeaderResult {
       rank: number;
-      subject_highlight: string;
-      text_highlight: string;
-      [key: string]: unknown;
+      subject_highlight: string | null;
+      text_highlight: string | null;
     }
-    const result = await pool.query(sql, values);
-    return result.rows.map((row: SearchRow) => {
-      const model = new MailModel(row) as SearchMailModel;
-      model.rank = row.rank;
-      model.highlight = {};
-      if (row.subject_highlight && row.subject_highlight.includes("<em>")) {
-        model.highlight.subject = [row.subject_highlight];
+    const result = await pool.query<SearchRow>(sql, values);
+    return result.rows.map(
+      ({ subject_highlight, text_highlight, ...row }): SearchMailResult => {
+        const highlight: SearchMailResult["highlight"] = {};
+        if (subject_highlight && subject_highlight.includes("<em>")) {
+          highlight.subject = [subject_highlight];
+        }
+        if (text_highlight && text_highlight.includes("<em>")) {
+          highlight.text = [text_highlight];
+        }
+        return { ...row, highlight };
       }
-      if (row.text_highlight && row.text_highlight.includes("<em>")) {
-        model.highlight.text = [row.text_highlight];
-      }
-      return model;
-    });
+    );
   } catch (error) {
     logger.error("Failed to search mails", {}, error);
     return [];

@@ -1,5 +1,5 @@
 import { MailHeaderData, SignedUser, MailAddressValueType, Insight } from "common";
-import { searchMails, SearchMailModel } from "../postgres/repositories/mails";
+import { searchMails, SearchMailResult } from "../postgres/repositories/mails";
 import { buildSnippet } from "./snippet";
 
 export const searchMail = async (
@@ -13,7 +13,7 @@ export const searchMail = async (
 
   const mailModels = await searchMails(user.id, value, field);
 
-  return mailModels.map((m: SearchMailModel) => {
+  return mailModels.map((m: SearchMailResult) => {
     return new MailHeaderData({
       id: m.mail_id,
       subject: m.subject,
@@ -34,8 +34,6 @@ export const searchMail = async (
       bcc: m.bcc_address
         ? { value: m.bcc_address as MailAddressValueType[], text: m.bcc_text || "" }
         : undefined,
-      // Search rows come from SELECT *, so the envelope recipient is on the
-      // row; carry it the same way the headers payload does.
       ...(m.envelope_to
         ? {
             envelopeTo: {
@@ -45,7 +43,7 @@ export const searchMail = async (
           }
         : {}),
       highlight: m.highlight,
-      snippet: buildSnippet(m.text),
+      snippet: buildSnippet(m.text_prefix),
       // Search spans the spam folder; the row says so.
       ...(m.is_spam ? { spam: true } : {}),
     });

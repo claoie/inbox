@@ -388,7 +388,39 @@ describe("buildSearchMailsQuery", () => {
     expect(sql).toContain("search_vector @@ plainto_tsquery('english', $2)");
     expect(values).toEqual([USER, "needle"]);
   });
+
+  it("selects the list's header columns, never the stored bodies", () => {
+    const { sql } = buildSearchMailsQuery(USER, "needle");
+    const headerList = buildMailHeadersQuery(USER, ADDRESS, headerOptions())
+      .sql.match(/SELECT ([\s\S]*?) FROM mails/)![1];
+    const searchList = sql.match(/SELECT ([\s\S]*?) FROM mails/)![1];
+    const items = topLevelItems(searchList);
+    expect(items.slice(0, topLevelItems(headerList).length)).toEqual(
+      topLevelItems(headerList)
+    );
+    for (const body of ["*", "text", "html", "attachments"]) {
+      expect(items).not.toContain(body);
+    }
+  });
 });
+
+const topLevelItems = (selectList: string): string[] => {
+  const items: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of selectList) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      items.push(current.trim().replace(/\s+/g, " "));
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  items.push(current.trim().replace(/\s+/g, " "));
+  return items;
+};
 
 describe("buildAccountStatsQuery", () => {
   const statsSql = (sent: boolean, spamOnly = false, domain?: string) =>
