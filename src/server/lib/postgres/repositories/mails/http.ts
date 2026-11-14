@@ -7,6 +7,7 @@ import {
   buildAccountStatsQuery,
   buildDeltaAsOfQuery,
   buildDeltaEvictionQuery,
+  buildMailHeadersByIdsQuery,
   buildMailHeadersQuery,
   buildSearchAccountStatsQuery,
   buildSearchMailsQuery,
@@ -62,6 +63,52 @@ export const getMailHeaders = async (
   const result = await pool.query(sql, values);
   return result.rows as MailHeaderResult[];
 };
+
+// A full list is fetched as its ordered ids, then their headers a batch at a
+// time, so a 10,000-row list never holds every header row at once.
+const HEADER_BATCH_SIZE = 500;
+
+export const getMailHeaderIds = async (
+  user_id: string,
+  address: string,
+  options: GetMailHeadersOptions
+): Promise<string[]> => {
+  const { sql, values } = buildMailHeadersQuery(user_id, address, options, "mail_id");
+  const result = await pool.query<{ mail_id: string }>(sql, values);
+  return result.rows.map((row) => row.mail_id);
+};
+
+export const getUnifiedMailHeaderIds = async (
+  user_id: string,
+  addresses: string[],
+  options: UnifiedMailHeadersOptions
+): Promise<string[]> => {
+  const { sql, values } = buildUnifiedMailHeadersQuery(
+    user_id,
+    addresses,
+    options,
+    "mail_id"
+  );
+  const result = await pool.query<{ mail_id: string }>(sql, values);
+  return result.rows.map((row) => row.mail_id);
+};
+
+/**
+ * The header rows of `ids` in the order given, `HEADER_BATCH_SIZE` at a
+ * time. An id expunged since it was listed is skipped.
+ */
+export async function* getMailHeadersByIds(
+  user_id: string,
+  ids: string[]
+): AsyncGenerator<MailHeaderResult[]> {
+  for (let start = 0; start < ids.length; start += HEADER_BATCH_SIZE) {
+    const batch = ids.slice(start, start + HEADER_BATCH_SIZE);
+    const { sql, values } = buildMailHeadersByIdsQuery(user_id, batch);
+    const result = await pool.query<MailHeaderResult>(sql, values);
+    const byId = new Map(result.rows.map((row) => [row.mail_id, row]));
+    yield batch.flatMap((id) => byId.get(id) ?? []);
+  }
+}
 
 // Cross-account list for the "All accounts" view (design doc §8): one
 // server-side query over the union of the user's receiving addresses —

@@ -36,6 +36,7 @@ mock.module("server", () => ({
   startTimer: mock(() => {}),
   version: "0.0.0",
   getMailHeaders: mock(async () => []),
+  toMailHeaderData: mock((row: unknown) => row),
   getAccounts: mock(async () => ({ received: [], sent: [] })),
   getMailBody: mock(async () => null),
   deleteMail: mock(async () => {}),

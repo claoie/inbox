@@ -55,11 +55,19 @@ const AUTH_ERROR_MESSAGE = "Authentication required";
 class MockMailValidationError extends Error {}
 class MockMailSendingError extends Error {}
 
+async function* oneBatch<R>(rows: R[]): AsyncGenerator<R[]> {
+  yield rows;
+}
+
+const apiResult = async (result: unknown): Promise<unknown> =>
+  result instanceof Response ? result.json() : result;
+
 mock.module("server", () => ({
   getMailHeaders: mockGetMailHeaders,
   getMailHeadersDelta: mockGetMailHeadersDelta,
   getUnifiedMailHeaders: mockGetUnifiedMailHeaders,
   getUnifiedMailHeadersDelta: mockGetUnifiedMailHeadersDelta,
+  toMailHeaderData: (row: unknown) => row,
   getAccounts: mockGetAccounts,
   getMailBody: mockGetMailBody,
   deleteMail: mockDeleteMail,
@@ -172,7 +180,7 @@ describe("getHeadersRoute", () => {
     const { getHeadersRoute } = await import("./get-headers");
 
     const fakeMails = [{ id: "m1", subject: "Hello" }];
-    mockGetMailHeaders.mockResolvedValueOnce(fakeMails as never);
+    mockGetMailHeaders.mockResolvedValueOnce(oneBatch(fakeMails) as never);
 
     const req = makeReq({
       method: "GET",
@@ -181,7 +189,7 @@ describe("getHeadersRoute", () => {
       query: {},
     });
 
-    const result = await getHeadersRoute.callback(req);
+    const result = await apiResult(await getHeadersRoute.callback(req));
     expect((result as ApiResponse<unknown>).status).toBe("success");
     expect((result as ApiResponse<unknown>).body).toEqual(fakeMails);
   });
@@ -199,7 +207,7 @@ describe("getHeadersRoute", () => {
       query: {},
     });
 
-    const result = await getHeadersRoute.callback(req);
+    const result = await apiResult(await getHeadersRoute.callback(req));
     expect((result as ApiResponse<unknown>).status).toBe("success");
   });
 
@@ -215,7 +223,7 @@ describe("getHeadersRoute", () => {
       query: {},
     });
 
-    const result = await getHeadersRoute.callback(req);
+    const result = await apiResult(await getHeadersRoute.callback(req));
     expect((result as ApiResponse<unknown>).status).toBe("failed");
   });
 
@@ -260,7 +268,7 @@ describe("getHeadersRoute", () => {
   it("without ?since= falls back to the full-list path (backwards-compat)", async () => {
     const { getHeadersRoute } = await import("./get-headers");
 
-    mockGetMailHeaders.mockResolvedValueOnce([{ id: "m1" }] as never);
+    mockGetMailHeaders.mockResolvedValueOnce(oneBatch([{ id: "m1" }]) as never);
     mockAddressToUsername.mockReturnValueOnce("alice");
 
     const req = makeReq({
@@ -270,7 +278,7 @@ describe("getHeadersRoute", () => {
       query: {},
     });
 
-    const result = await getHeadersRoute.callback(req);
+    const result = await apiResult(await getHeadersRoute.callback(req));
     expect((result as ApiResponse<unknown>).status).toBe("success");
     expect(mockGetMailHeaders).toHaveBeenCalledTimes(1);
     expect(mockGetMailHeadersDelta).not.toHaveBeenCalled();
@@ -291,7 +299,7 @@ describe("getHeadersRoute", () => {
       query: { since },
     });
 
-    const result = await getHeadersRoute.callback(req);
+    const result = await apiResult(await getHeadersRoute.callback(req));
     expect((result as ApiResponse<unknown>).status).toBe("success");
     expect((result as ApiResponse<unknown>).body).toEqual(delta);
     expect(mockGetMailHeaders).not.toHaveBeenCalled();
@@ -311,7 +319,7 @@ describe("getHeadersRoute", () => {
       query: { since: "not-a-date" },
     });
 
-    const result = await getHeadersRoute.callback(req);
+    const result = await apiResult(await getHeadersRoute.callback(req));
     expect((result as ApiResponse<unknown>).status).toBe("failed");
     expect(mockGetMailHeadersDelta).not.toHaveBeenCalled();
     expect(mockGetMailHeaders).not.toHaveBeenCalled();
@@ -337,7 +345,7 @@ describe("getUnifiedHeadersRoute", () => {
 
     const fakeMails = [{ id: "m1", subject: "Hello" }];
     mockGetAccounts.mockResolvedValueOnce(receivedAccounts as never);
-    mockGetUnifiedMailHeaders.mockResolvedValueOnce(fakeMails as never);
+    mockGetUnifiedMailHeaders.mockResolvedValueOnce(oneBatch(fakeMails) as never);
 
     const req = makeReq({
       method: "GET",
@@ -346,7 +354,7 @@ describe("getUnifiedHeadersRoute", () => {
       query: {},
     });
 
-    const result = await getUnifiedHeadersRoute.callback(req);
+    const result = await apiResult(await getUnifiedHeadersRoute.callback(req));
     expect((result as ApiResponse<unknown>).status).toBe("success");
     expect((result as ApiResponse<unknown>).body).toEqual(fakeMails);
   });
@@ -394,7 +402,7 @@ describe("getUnifiedHeadersRoute", () => {
     const { getUnifiedHeadersRoute } = await import("./get-unified-headers");
 
     mockGetAccounts.mockResolvedValueOnce(receivedAccounts as never);
-    mockGetUnifiedMailHeaders.mockResolvedValueOnce([{ id: "m1" }] as never);
+    mockGetUnifiedMailHeaders.mockResolvedValueOnce(oneBatch([{ id: "m1" }]) as never);
 
     const req = makeReq({
       method: "GET",
@@ -403,7 +411,7 @@ describe("getUnifiedHeadersRoute", () => {
       query: {},
     });
 
-    const result = await getUnifiedHeadersRoute.callback(req);
+    const result = await apiResult(await getUnifiedHeadersRoute.callback(req));
     expect((result as ApiResponse<unknown>).status).toBe("success");
     expect(mockGetUnifiedMailHeaders).toHaveBeenCalledTimes(1);
     expect(mockGetUnifiedMailHeadersDelta).not.toHaveBeenCalled();
@@ -424,7 +432,7 @@ describe("getUnifiedHeadersRoute", () => {
       query: { since },
     });
 
-    const result = await getUnifiedHeadersRoute.callback(req);
+    const result = await apiResult(await getUnifiedHeadersRoute.callback(req));
     expect((result as ApiResponse<unknown>).status).toBe("success");
     expect((result as ApiResponse<unknown>).body).toEqual(delta);
     expect(mockGetUnifiedMailHeaders).not.toHaveBeenCalled();
@@ -445,7 +453,7 @@ describe("getUnifiedHeadersRoute", () => {
       query: { since: "not-a-date" },
     });
 
-    const result = await getUnifiedHeadersRoute.callback(req);
+    const result = await apiResult(await getUnifiedHeadersRoute.callback(req));
     expect((result as ApiResponse<unknown>).status).toBe("failed");
     expect(mockGetUnifiedMailHeadersDelta).not.toHaveBeenCalled();
     expect(mockGetUnifiedMailHeaders).not.toHaveBeenCalled();

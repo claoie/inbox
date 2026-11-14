@@ -17,6 +17,7 @@ import {
   buildDeltaAsOfQuery,
   buildDeltaEvictionQuery,
   buildHeaderAddressCondition,
+  buildMailHeadersByIdsQuery,
   buildMailHeadersQuery,
   buildSearchAccountStatsQuery,
   buildSearchMailsQuery,
@@ -373,6 +374,42 @@ describe("buildUnifiedDeltaEvictionQuery", () => {
       [JSON.stringify([{ address: "a@example.com" }]), JSON.stringify([{ address: "b@example.com" }])],
       SINCE,
     ]);
+  });
+});
+
+describe("full-list id queries", () => {
+  const selectList = (sql: string) => sql.match(/SELECT ([\s\S]*?) FROM mails/)![1].trim();
+
+  it("lists only ids, with the same filter and order as the header query", () => {
+    const options = headerOptions({ sent: true, size: 10_000, from: 0 });
+    const headers = buildMailHeadersQuery(USER, ADDRESS, options);
+    const ids = buildMailHeadersQuery(USER, ADDRESS, options, "mail_id");
+    expect(selectList(ids.sql)).toBe("mail_id");
+    expect(ids.sql.slice(ids.sql.indexOf("FROM mails"))).toBe(
+      headers.sql.slice(headers.sql.indexOf("FROM mails"))
+    );
+    expect(ids.values).toEqual(headers.values);
+  });
+
+  it("lists unified ids with the same filter and order as the unified header query", () => {
+    const options = { size: 10_000, from: 0 };
+    const headers = buildUnifiedMailHeadersQuery(USER, [ADDRESS], options);
+    const ids = buildUnifiedMailHeadersQuery(USER, [ADDRESS], options, "mail_id");
+    expect(selectList(ids.sql)).toBe("mail_id");
+    expect(ids.sql.slice(ids.sql.indexOf("FROM mails"))).toBe(
+      headers.sql.slice(headers.sql.indexOf("FROM mails"))
+    );
+    expect(ids.values).toEqual(headers.values);
+  });
+
+  it("reads a batch's headers by id, scoped to the user and skipping expunged rows", () => {
+    const { sql, values } = buildMailHeadersByIdsQuery(USER, ["a", "b"]);
+    const listColumns = selectList(buildMailHeadersQuery(USER, ADDRESS, headerOptions()).sql);
+    expect(selectList(sql)).toBe(listColumns);
+    expect(sql).toContain("WHERE user_id = $1");
+    expect(sql).toContain("mail_id = ANY($2::uuid[])");
+    expect(sql).toContain("AND expunged = FALSE");
+    expect(values).toEqual([USER, ["a", "b"]]);
   });
 });
 

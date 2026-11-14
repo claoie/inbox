@@ -2,9 +2,11 @@ import { MailHeaderDataType } from "common";
 import {
   getMailHeaders,
   getMailHeadersDelta,
+  toMailHeaderData,
   addressToUsername,
   GetMailsOptions
 } from "server";
+import { jsonList } from "../../respond";
 import { Route } from "../route";
 
 // Full-list response (no `?since=`). Unchanged shape — old clients keep working.
@@ -61,7 +63,6 @@ export const getHeadersRoute = new Route<
       return { status: "success", body: delta };
     }
 
-    const mails = await getMailHeaders(user, req.params.account, options);
-    return { status: "success", body: mails };
+    return jsonList(await getMailHeaders(user, req.params.account, options), toMailHeaderData);
   }
 );

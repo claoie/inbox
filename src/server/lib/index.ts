@@ -22,6 +22,7 @@ export {
   getMailHeadersDelta,
   getUnifiedMailHeaders,
   getUnifiedMailHeadersDelta,
+  toMailHeaderData,
   getMailBody,
   searchMail,
   markRead,

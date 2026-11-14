@@ -1,8 +1,10 @@
 import {
   getAccounts,
   getUnifiedMailHeaders,
-  getUnifiedMailHeadersDelta
+  getUnifiedMailHeadersDelta,
+  toMailHeaderData
 } from "server";
+import { jsonList } from "../../respond";
 import { Route } from "../route";
 import type { HeadersDeltaGetResponse, HeadersGetResponse } from "./get-headers";
 
@@ -41,7 +43,6 @@ export const getUnifiedHeadersRoute = new Route<
       return { status: "success", body: delta };
     }
 
-    const mails = await getUnifiedMailHeaders(user, addresses, {});
-    return { status: "success", body: mails };
+    return jsonList(await getUnifiedMailHeaders(user, addresses, {}), toMailHeaderData);
   }
 );

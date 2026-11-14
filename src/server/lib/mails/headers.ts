@@ -7,9 +7,10 @@ import {
   Insight,
 } from "common";
 import {
-  getMailHeaders as pgGetMailHeaders,
+  getMailHeaderIds as pgGetMailHeaderIds,
+  getMailHeadersByIds as pgGetMailHeadersByIds,
   getMailHeadersDelta as pgGetMailHeadersDelta,
-  getUnifiedMailHeaders as pgGetUnifiedMailHeaders,
+  getUnifiedMailHeaderIds as pgGetUnifiedMailHeaderIds,
   getUnifiedMailHeadersDelta as pgGetUnifiedMailHeadersDelta,
   GetMailHeadersOptions,
   MailHeaderResult,
@@ -45,6 +46,8 @@ interface UserWithId {
 
 const resolveUserId = (user: MaskedUser | SignedUser): string | undefined =>
   "id" in user ? user.id : (user as UserWithId).user_id;
+
+async function* noBatches(): AsyncGenerator<MailHeaderResult[]> {}
 
 export const toMailHeaderData = (m: MailHeaderResult): MailHeaderData =>
   new MailHeaderData({
@@ -87,9 +90,9 @@ export const getMailHeaders = async (
   user: MaskedUser | SignedUser,
   address: string,
   options: GetMailsOptions
-): Promise<MailHeaderData[]> => {
+): Promise<AsyncIterable<MailHeaderResult[]>> => {
   const userId = resolveUserId(user);
-  if (!userId) return [];
+  if (!userId) return noBatches();
 
   const { from, size } = options.pagination || new Pagination();
 
@@ -101,9 +104,8 @@ export const getMailHeaders = async (
     size,
   };
 
-  const mailModels = await pgGetMailHeaders(userId, address, pgOptions);
-
-  return mailModels.map(toMailHeaderData);
+  const ids = await pgGetMailHeaderIds(userId, address, pgOptions);
+  return pgGetMailHeadersByIds(userId, ids);
 };
 
 export const getMailHeadersDelta = async (
@@ -135,18 +137,14 @@ export const getUnifiedMailHeaders = async (
   user: MaskedUser | SignedUser,
   addresses: string[],
   options: GetUnifiedMailsOptions
-): Promise<MailHeaderData[]> => {
+): Promise<AsyncIterable<MailHeaderResult[]>> => {
   const userId = resolveUserId(user);
-  if (!userId) return [];
+  if (!userId) return noBatches();
 
   const { from, size } = options.pagination || new Pagination();
 
-  const mailModels = await pgGetUnifiedMailHeaders(userId, addresses, {
-    from,
-    size,
-  });
-
-  return mailModels.map(toMailHeaderData);
+  const ids = await pgGetUnifiedMailHeaderIds(userId, addresses, { from, size });
+  return pgGetMailHeadersByIds(userId, ids);
 };
 
 export const getUnifiedMailHeadersDelta = async (

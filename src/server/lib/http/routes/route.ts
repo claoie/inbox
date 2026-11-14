@@ -28,7 +28,9 @@ export class StreamingStatus {
 
 export type GetResponse<T = unknown> = (
   req: HttpRequest
-) => Promise<T extends Bun.BunFile ? Bun.BunFile | ApiResponse : ApiResponse<T> | void>;
+) => Promise<
+  T extends Bun.BunFile ? Bun.BunFile | ApiResponse : ApiResponse<T> | Response | void
+>;
 
 const escapeRegExp = (literal: string) => literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -102,6 +104,7 @@ export class Route<T> {
   handler = async (req: HttpRequest): Promise<Response> => {
     try {
       const result = await this.callback(req);
+      if (result instanceof Response) return result;
       if (result instanceof Blob) {
         return sendFile(result as Bun.BunFile, { contentType: "application/octet-stream" });
       }

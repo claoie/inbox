@@ -102,15 +102,34 @@ const headerColumns = [
     ELSE ${REFERENCE_IDS} END AS ${REFERENCE_IDS}`,
 ].join(", ");
 
+/**
+ * Header rows for `ids`, in no particular order. The batch half of the full
+ * list fetch: the list query picks and orders the ids, this reads their
+ * headers a bounded batch at a time.
+ */
+export const buildMailHeadersByIdsQuery = (
+  user_id: string,
+  ids: string[]
+): { sql: string; values: ParamValue[] } => ({
+  sql: `
+    SELECT ${headerColumns} FROM mails
+    WHERE user_id = $1
+      AND ${MAIL_ID} = ANY($2::uuid[])
+      AND expunged = FALSE
+  `,
+  values: [user_id, ids],
+});
+
 export const buildMailHeadersQuery = (
   user_id: string,
   address: string,
-  options: GetMailHeadersOptions
+  options: GetMailHeadersOptions,
+  columns = headerColumns
 ): { sql: string; values: ParamValue[] } => {
   const addressJson = JSON.stringify([{ address }]);
   const addressCondition = buildHeaderAddressCondition(options);
   let sql = `
-    SELECT ${headerColumns} FROM mails 
+    SELECT ${columns} FROM mails 
     WHERE user_id = $1 
       AND ${addressCondition}
       AND expunged = FALSE
@@ -218,11 +237,12 @@ export const buildUnifiedAddressCondition = (paramIndex = 2): string =>
 export const buildUnifiedMailHeadersQuery = (
   user_id: string,
   addresses: string[],
-  options: UnifiedMailHeadersOptions
+  options: UnifiedMailHeadersOptions,
+  columns = headerColumns
 ): { sql: string; values: ParamValue[] } => {
   const addressCondition = buildUnifiedAddressCondition();
   let sql = `
-    SELECT ${headerColumns} FROM mails 
+    SELECT ${columns} FROM mails 
     WHERE user_id = $1 
       AND ${addressCondition}
       AND expunged = FALSE
