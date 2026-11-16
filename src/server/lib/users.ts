@@ -166,29 +166,45 @@ export const startTimer = (userId: string) => {
 
 export const encryptPassword = (password: string) => hashPassword(password);
 
+/** Why `setUserInfo` declined a request it was able to evaluate. */
+export type SetUserInfoRejection =
+  | "invalid-input"
+  | "unknown-user"
+  | "token-mismatch"
+  | "token-expired"
+  | "username-taken";
+
+/**
+ * A declined request is a value, not a throw: these are the caller's mistakes,
+ * and a throw would surface each one as a server fault. Only conditions the
+ * caller cannot cause still throw.
+ */
+export type SetUserInfoResult =
+  | { status: "updated"; user: SignedUser }
+  | { status: "rejected"; reason: SetUserInfoRejection };
+
+const reject = (reason: SetUserInfoRejection): SetUserInfoResult => ({
+  status: "rejected",
+  reason
+});
+
 export const setUserInfo = async (
   userInfo: Partial<User>
-): Promise<SignedUser> => {
+): Promise<SetUserInfoResult> => {
   const { email, password, token } = userInfo;
   let { username } = userInfo;
-  if (!email || !username || !password) {
-    throw new Error(
-      `Setting userInfo failed because input is invalid: ${userInfo}`
-    );
-  }
+  if (!email || !username || !password) return reject("invalid-input");
 
   const existingUser = await getUser({ email });
-  if (!existingUser?.id) {
-    throw new Error("`setUserInfo` failed because user doesn't exist.");
-  }
+  if (!existingUser?.id) return reject("unknown-user");
   if (!existingUser.token || existingUser.token !== token) {
-    throw new Error("`setUserInfo` failed because token doesn't match.");
+    return reject("token-mismatch");
   }
 
   const { id, expiry } = existingUser;
   if (expiry && new Date(expiry).getTime() < Date.now()) {
     await reclaimExpiredToken(id);
-    throw new Error("Setting userInfo failed because user token is expired.");
+    return reject("token-expired");
   }
 
   const expiryTimeout = expiryTimer[id];
@@ -196,9 +212,7 @@ export const setUserInfo = async (
 
   if (!existingUser.username) {
     const findUserInfoByUsername = await getUser({ username });
-    if (findUserInfoByUsername) {
-      throw new Error("`setUserInfo` failed because username already exists.");
-    }
+    if (findUserInfoByUsername) return reject("username-taken");
   } else {
     username = existingUser.username;
   }
@@ -253,7 +267,7 @@ export const setUserInfo = async (
   if (!signed) {
     throw new Error("`setUserInfo` failed to sign the updated user.");
   }
-  return signed;
+  return { status: "updated", user: signed };
 };
 
 export const createAuthenticationMail = (

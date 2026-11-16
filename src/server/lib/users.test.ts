@@ -505,40 +505,40 @@ describe("encryptPassword", () => {
 });
 
 describe("setUserInfo", () => {
-  it("throws when email is missing", async () => {
-    await expect(
-      setUserInfo({ username: "alice", password: "p" })
-    ).rejects.toThrow(/input is invalid/);
+  it("rejects as invalid-input when email is missing", async () => {
+    expect(
+      await setUserInfo({ username: "alice", password: "p" })
+    ).toEqual({ status: "rejected", reason: "invalid-input" });
     expect(mockQuery).not.toHaveBeenCalled();
   });
 
-  it("throws when username is missing", async () => {
-    await expect(
-      setUserInfo({ email: "a@b.c", password: "p" })
-    ).rejects.toThrow(/input is invalid/);
+  it("rejects as invalid-input when username is missing", async () => {
+    expect(
+      await setUserInfo({ email: "a@b.c", password: "p" })
+    ).toEqual({ status: "rejected", reason: "invalid-input" });
     expect(mockQuery).not.toHaveBeenCalled();
   });
 
-  it("throws when password is missing", async () => {
-    await expect(
-      setUserInfo({ email: "a@b.c", username: "alice" })
-    ).rejects.toThrow(/input is invalid/);
+  it("rejects as invalid-input when password is missing", async () => {
+    expect(
+      await setUserInfo({ email: "a@b.c", username: "alice" })
+    ).toEqual({ status: "rejected", reason: "invalid-input" });
     expect(mockQuery).not.toHaveBeenCalled();
   });
 
-  it("throws when user does not exist", async () => {
+  it("rejects as unknown-user when no account has the address", async () => {
     mockQuery.mockResolvedValueOnce(rows());
-    await expect(
-      setUserInfo({
+    expect(
+      await setUserInfo({
         email: "a@b.c",
         username: "alice",
         password: "p",
         token: "tok",
       })
-    ).rejects.toThrow(/user doesn't exist/);
+    ).toEqual({ status: "rejected", reason: "unknown-user" });
   });
 
-  it("throws (and issues no UPDATE) when token does not match the stored token", async () => {
+  it("rejects as token-mismatch (and issues no UPDATE) when token does not match the stored token", async () => {
     mockQuery.mockResolvedValueOnce(
       rows(
         makeUserRow({
@@ -550,16 +550,35 @@ describe("setUserInfo", () => {
         })
       )
     );
-    await expect(
-      setUserInfo({
+    expect(
+      await setUserInfo({
         email: "a@b.c",
         username: "alice",
         password: "p",
         token: "wrong-token",
       })
-    ).rejects.toThrow(/token doesn't match/);
+    ).toEqual({ status: "rejected", reason: "token-mismatch" });
     // Only the SELECT ran — no UPDATE.
     expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects as username-taken (and issues no write) when the chosen username belongs to another account", async () => {
+    mockQuery
+      .mockResolvedValueOnce(
+        rows(makeUserRow({ user_id: "u-1", username: "", email: "a@b.c", token: "tok" }))
+      )
+      .mockResolvedValueOnce(
+        rows(makeUserRow({ user_id: "u-2", username: "bob", email: "bob@b.c" }))
+      );
+    expect(
+      await setUserInfo({
+        email: "a@b.c",
+        username: "bob",
+        password: "p",
+        token: "tok",
+      })
+    ).toEqual({ status: "rejected", reason: "username-taken" });
+    expect(mockQuery).toHaveBeenCalledTimes(2);
   });
 
   it("rejects a registered account's expired reset token and clears it", async () => {
@@ -577,14 +596,14 @@ describe("setUserInfo", () => {
       .mockResolvedValueOnce(rows(expiredRow))
       .mockResolvedValueOnce(rows({ user_id: "u-1" }));
 
-    await expect(
-      setUserInfo({
+    expect(
+      await setUserInfo({
         email: "a@b.c",
         username: "attacker-choice",
         password: "attacker-password",
         token: "stale-token",
       })
-    ).rejects.toThrow(/token is expired/);
+    ).toEqual({ status: "rejected", reason: "token-expired" });
 
     // The stale token is nulled, and no write carries a password hash.
     const updates = mockQuery.mock.calls.filter(([sql]) =>
@@ -612,14 +631,14 @@ describe("setUserInfo", () => {
       .mockResolvedValueOnce(rows(expiredRow))
       .mockResolvedValueOnce(rows({ user_id: "u-1" }));
 
-    await expect(
-      setUserInfo({
+    expect(
+      await setUserInfo({
         email: "a@b.c",
         username: "attacker-choice",
         password: "attacker-password",
         token: "stale-token",
       })
-    ).rejects.toThrow(/token is expired/);
+    ).toEqual({ status: "rejected", reason: "token-expired" });
 
     const deletes = mockQuery.mock.calls.filter(([sql]) =>
       /^\s*DELETE\s+FROM\s+users/i.test(sql)
@@ -749,12 +768,14 @@ describe("setUserInfo", () => {
       .mockResolvedValueOnce(rows())
       .mockResolvedValueOnce(rows({ user_id: "u-1", password_version: 2 }));
 
-    const signed = await setUserInfo({
+    const result = await setUserInfo({
       email: "a@b.c",
       username: "alice",
       password: "newpw",
       token: "tok",
     });
+    if (result.status !== "updated") throw new Error("expected an update");
+    const signed = result.user;
 
     const [sql, values] = mockQuery.mock.calls[2] as [string, unknown[]];
     expect(sql).toContain("COALESCE(password_version, 1) + 1");
@@ -823,12 +844,14 @@ describe("setUserInfo", () => {
       .mockResolvedValueOnce(rows())
       .mockResolvedValueOnce(rows({ user_id: "u-1", password_version: 2 }));
 
-    const signed = await setUserInfo({
+    const result = await setUserInfo({
       email: "a@b.c",
       username: "alice",
       password: "newpw",
       token: "tok",
     });
+    if (result.status !== "updated") throw new Error("expected an update");
+    const signed = result.user;
 
     expect(signed).toBeDefined();
     expect(signed.id).toBe("u-1");

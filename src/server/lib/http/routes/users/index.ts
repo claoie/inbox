@@ -7,7 +7,7 @@ import { postLoginRoute } from "./post-login";
 import { deleteLoginRoute } from "./delete-login";
 import { postTokenRoute } from "./post-token";
 import { postSetInfoRoute } from "./post-set-info";
-import { loginLimiter, tokenLimiter, type RateLimiter } from "../../rate-limit";
+import { loginLimiter, tokenLimiter, setInfoLimiter, type RateLimiter } from "../../rate-limit";
 
 const routes = [
   getLoginRoute,
@@ -28,6 +28,7 @@ export const LOCAL_SIGN_IN_OFF_MESSAGE =
 const postLimiters: [string, RateLimiter][] = [
   [postLoginRoute.path, loginLimiter],
   [postTokenRoute.path, tokenLimiter],
+  [postSetInfoRoute.path, setInfoLimiter],
 ];
 
 /** `/api/users/*`, with `path` relative to that mount. */

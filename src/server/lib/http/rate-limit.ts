@@ -214,6 +214,11 @@ export const tokenLimiter = createLimiter(
   "Too many token requests, try again later"
 );
 
+export const setInfoLimiter = createLimiter(
+  5,
+  "Too many attempts, try again later"
+);
+
 export const mailgunEventsLimiter = createLimiter(
   60,
   "Too many Mailgun webhook requests, try again later"

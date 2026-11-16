@@ -122,6 +122,14 @@ const makeReq = (overrides: Record<string, unknown> = {}) => {
   } as unknown as HttpRequest;
 };
 
+/** What `setUserInfo` resolves to when it rotated the account. */
+const updated = (user: unknown) =>
+  ({ status: "updated", user }) as Awaited<ReturnType<typeof mockSetUserInfo>>;
+
+/** What `setUserInfo` resolves to when it declined the request. */
+const rejected = (reason: string) =>
+  ({ status: "rejected", reason }) as Awaited<ReturnType<typeof mockSetUserInfo>>;
+
 /** Reads a handler's response back as its status and JSON body. */
 const readResponse = async (response: Response) => ({
   _code: response.status,
@@ -551,7 +559,7 @@ describe("postSetInfoRoute", () => {
     const maskedUser = { id: "u1", username: "alice", email: "a@b.com" };
     // First getUser call is the read-only pre-gate (no existing row).
     mockGetUser.mockResolvedValueOnce(null);
-    mockSetUserInfo.mockResolvedValueOnce(maskedUser as Awaited<ReturnType<typeof mockSetUserInfo>>);
+    mockSetUserInfo.mockResolvedValueOnce(updated(maskedUser));
     const req = makeReq({ body: { email: "a@b.com", username: "alice", password: "pass" } });
     const result = await postSetInfoRoute.callback(req);
     expect((result as ApiResponse<unknown>).status).toBe("success");
@@ -624,9 +632,7 @@ describe("postSetInfoRoute", () => {
       username: "alice",
       email: "a@b.com",
     });
-    mockSetUserInfo.mockResolvedValueOnce(
-      maskedUser as Awaited<ReturnType<typeof mockSetUserInfo>>
-    );
+    mockSetUserInfo.mockResolvedValueOnce(updated(maskedUser));
     const req = makeReq({
       body: { email: "a@b.com", username: "alice", password: "pass" },
     });
@@ -642,11 +648,7 @@ describe("postSetInfoRoute", () => {
     const { postSetInfoRoute } = await import("./post-set-info");
     mockSetUserInfo.mockClear();
     mockGetUser.mockResolvedValueOnce({ id: "u1", username: "alice", email: "a@b.com" });
-    mockSetUserInfo.mockResolvedValueOnce(
-      { id: "u1", username: "alice", email: "a@b.com" } as Awaited<
-        ReturnType<typeof mockSetUserInfo>
-      >
-    );
+    mockSetUserInfo.mockResolvedValueOnce(updated({ id: "u1", username: "alice", email: "a@b.com" }));
     const req = makeReq({
       body: { email: "a@b.com", username: "alice", password: "pass" },
     });
@@ -662,11 +664,7 @@ describe("postSetInfoRoute", () => {
     const { postSetInfoRoute } = await import("./post-set-info");
     mockSetUserInfo.mockClear();
     mockGetUser.mockResolvedValueOnce({ id: "u1", username: "alice", email: "a@b.com" });
-    mockSetUserInfo.mockResolvedValueOnce(
-      { id: "u1", username: "alice", email: "a@b.com" } as Awaited<
-        ReturnType<typeof mockSetUserInfo>
-      >
-    );
+    mockSetUserInfo.mockResolvedValueOnce(updated({ id: "u1", username: "alice", email: "a@b.com" }));
     const req = makeReq({
       body: { email: "a@b.com", username: "alice", password: "pass" },
       session: {
@@ -687,17 +685,127 @@ describe("postSetInfoRoute", () => {
     const { postSetInfoRoute } = await import("./post-set-info");
     mockSetUserInfo.mockClear();
     mockGetUser.mockResolvedValueOnce({ id: "u1", username: "alice", email: "a@b.com" });
-    mockSetUserInfo.mockRejectedValueOnce(
-      new Error("`setUserInfo` failed because token doesn't match.")
+    mockSetUserInfo.mockResolvedValueOnce(
+      rejected("token-mismatch")
     );
     const req = makeReq({
       body: { email: "a@b.com", username: "alice", password: "pass", token: "wrong" },
     });
-    await expect(
-      postSetInfoRoute.callback(req)
-    ).rejects.toThrow("token doesn't match");
+    const result = await postSetInfoRoute.callback(req);
+    expect((result as ApiResponse<unknown>).status).toBe("failed");
     expect(req.session.regenerate).not.toHaveBeenCalled();
     expect(req.session.user).toBeNull();
+  });
+
+  // Every rejection is the caller's mistake, so it is answered as `failed` —
+  // never thrown into the Route wrapper's 500 + alarm.
+  it.each([
+    ["invalid-input", /required/i],
+    ["unknown-user", /link is invalid/i],
+    ["token-mismatch", /link is invalid/i],
+    ["token-expired", /link has expired/i],
+    ["username-taken", /username is already taken/i],
+  ] as const)("answers a %s rejection as failed with its own message", async (reason, message) => {
+    const { postSetInfoRoute } = await import("./post-set-info");
+    mockGetUser.mockResolvedValueOnce(null);
+    mockSetUserInfo.mockResolvedValueOnce(rejected(reason));
+    const req = makeReq({
+      body: { email: "a@b.com", username: "alice", password: "pass", token: "t" },
+      ip: `203.0.113.${reason.length}`,
+    });
+    const response = await postSetInfoRoute.handler(req);
+    const { _code, _body } = await readResponse(response);
+    expect(_code).toBe(200);
+    expect(_body).toEqual({ status: "failed", message: expect.stringMatching(message) });
+    expect(req.session.user).toBeNull();
+  });
+
+  it("answers an unknown address and a wrong token identically", async () => {
+    const { postSetInfoRoute } = await import("./post-set-info");
+    const answer = async (reason: "unknown-user" | "token-mismatch") => {
+      mockGetUser.mockResolvedValueOnce(null);
+      mockSetUserInfo.mockResolvedValueOnce(rejected(reason));
+      return postSetInfoRoute.callback(
+        makeReq({ body: { email: "a@b.com", username: "alice", password: "pass", token: "t" } })
+      );
+    };
+    expect(await answer("unknown-user")).toEqual(await answer("token-mismatch"));
+  });
+
+  it("still lets an unexpected fault through to the Route wrapper", async () => {
+    const { postSetInfoRoute } = await import("./post-set-info");
+    mockGetUser.mockResolvedValueOnce(null);
+    mockSetUserInfo.mockRejectedValueOnce(new Error("connection terminated"));
+    const req = makeReq({
+      body: { email: "a@b.com", username: "alice", password: "pass", token: "t" },
+    });
+    const { _code } = await readResponse(await postSetInfoRoute.handler(req));
+    expect(_code).toBe(500);
+  });
+});
+
+describe("postSetInfoRoute + setInfoLimiter integration", () => {
+  it("refuses an anonymous caller with 429 after five rejected attempts", async () => {
+    const { default: handleUsers } = await import("./index");
+    const rateLimit = await import("../../rate-limit");
+    const ip = "198.51.100.40";
+    rateLimit.setInfoLimiter.reset(ip);
+    const request = () =>
+      makeReq({
+        body: { email: "nobody@b.com", username: "x", password: "x", token: "x" },
+        ip,
+      });
+
+    for (let i = 0; i < 5; i++) {
+      mockGetUser.mockResolvedValueOnce(null);
+      mockSetUserInfo.mockResolvedValueOnce(rejected("unknown-user"));
+      const response = await handleUsers(request(), "/set-info");
+      expect(response?.status).toBe(200);
+    }
+
+    mockSetUserInfo.mockClear();
+    const refused = await handleUsers(request(), "/set-info");
+    expect(refused?.status).toBe(429);
+    expect(mockSetUserInfo).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a non-object body", "198.51.100.41", "notanobject"],
+    ["a reserved address", "198.51.100.42", { email: "admin@localhost", username: "admin", password: "x" }],
+  ])("counts %s against the IP quota", async (_label, ip, body) => {
+    const { postSetInfoRoute } = await import("./post-set-info");
+    const rateLimit = await import("../../rate-limit");
+    rateLimit.setInfoLimiter.reset(ip as string);
+    const req = makeReq({ body, ip });
+
+    for (let i = 0; i < 5; i++) {
+      if (typeof body === "object") {
+        mockGetUser.mockResolvedValueOnce({ id: "admin-id", username: ADMIN_USERNAME });
+      }
+      const result = await postSetInfoRoute.callback(req);
+      expect((result as ApiResponse<unknown>).status).toBe("failed");
+    }
+
+    expect(rateLimit.setInfoLimiter.check(req)?.status).toBe(429);
+  });
+
+  it("does not count an unexpected fault against the IP quota", async () => {
+    const { postSetInfoRoute } = await import("./post-set-info");
+    const rateLimit = await import("../../rate-limit");
+    const ip = "198.51.100.43";
+    rateLimit.setInfoLimiter.reset(ip);
+    const req = makeReq({
+      body: { email: "a@b.com", username: "alice", password: "pass", token: "t" },
+      ip,
+    });
+
+    for (let i = 0; i < 5; i++) {
+      mockGetUser.mockResolvedValueOnce(null);
+      mockSetUserInfo.mockRejectedValueOnce(new Error("connection terminated"));
+      await expect(postSetInfoRoute.callback(req)).rejects.toThrow("connection terminated");
+    }
+
+    expect(rateLimit.setInfoLimiter.check(req)).toBeUndefined();
   });
 });
 
