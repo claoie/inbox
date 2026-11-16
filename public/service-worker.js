@@ -6,8 +6,8 @@
 //   2. Cache-first for hashed assets (`/assets/*`). A deploy deletes the
 //      previous build's content-hashed files, and the SPA catch-all answers
 //      a request for one with `index.html`. The worker caches the current
-//      build, the previous one, and every build an open window still runs,
-//      so a tab left open keeps working across any number of deploys.
+//      build, the previous one, and every build a window reported recently
+//      or is still listed as running, so a tab left open survives later deploys.
 
 const CACHE_NAME = "mail-v1";
 const ASSET_MANIFEST = "/asset-manifest.json";
@@ -74,9 +74,9 @@ const openWindowIds = async () => {
 // is older than this.
 const UNLISTED_WINDOW_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
-// A build stays cached while any open window still runs it, however many
-// deploys ago it was loaded; current and previous cover windows that have not
-// reported their build yet.
+// An older build stays cached while a window that reported it is still listed
+// or reported it within the TTL; current and previous cover windows that have
+// not reported their build yet.
 const prune = async (cache, stored) => {
   const openIds = await openWindowIds();
   const now = Date.now();

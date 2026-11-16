@@ -40,7 +40,7 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 if ("serviceWorker" in navigator) {
-  // The worker keeps this window's build cached for as long as the window stays open.
+  // The worker keeps this window's build cached while the window is open or reported it recently.
   const reportBuild = () =>
     navigator.serviceWorker.ready.then((registration) =>
       registration.active?.postMessage({ type: "build", entry: new URL(import.meta.url).pathname })
