@@ -18,11 +18,13 @@ import {
   buildDeltaEvictionQuery,
   buildHeaderAddressCondition,
   buildMailHeadersByIdsQuery,
+  buildMailHeaderIdPageQuery,
   buildMailHeadersQuery,
   buildSearchAccountStatsQuery,
   buildSearchMailsQuery,
   buildUnifiedAddressCondition,
   buildUnifiedDeltaEvictionQuery,
+  buildUnifiedMailHeaderIdPageQuery,
   buildUnifiedMailHeadersQuery,
   buildUnreadNotificationsQuery,
   type GetMailHeadersOptions,
@@ -578,8 +580,8 @@ describe("list keyset paging", () => {
   const AFTER = {
     date: "2026-11-15 02:55:04.123456+00",
     id: "22222222-2222-2222-2222-222222222222",
-    read: true,
   };
+  const selectList = (sql: string) => sql.match(/SELECT ([\s\S]*?) FROM mails/)?.[1] ?? "";
 
   it("orders the per-account list by date, then id, so the cursor names one position", () => {
     expect(headersSql()).toContain("ORDER BY date DESC, mail_id DESC");
@@ -596,27 +598,32 @@ describe("list keyset paging", () => {
     expect(values.slice(2)).toEqual([AFTER.date, AFTER.id, 101]);
   });
 
-  it("orders the unified list by read, date, then id", () => {
+  it("keeps the unpaged unified list unread-then-recent", () => {
     const { sql } = buildUnifiedMailHeadersQuery(USER, [ADDRESS], {});
-    expect(sql).toContain("ORDER BY read ASC, date DESC, mail_id DESC");
+    expect(sql).toContain("ORDER BY read ASC, date DESC");
   });
 
-  it("starts a unified page after the cursor in (read, date, id) order", () => {
-    const { sql, values } = buildUnifiedMailHeadersQuery(USER, [ADDRESS], {
-      after: AFTER,
-      size: 101,
-    });
+  it("asks a folder page for one row past the limit, ids and the cursor's date as text", () => {
+    const { sql, values } = buildMailHeaderIdPageQuery(USER, ADDRESS, headerOptions({ after: AFTER }), 100);
+    expect(selectList(sql).trim()).toBe("mail_id, date::text AS cursor_date");
+    expect(sql).toContain("ORDER BY date DESC, mail_id DESC LIMIT $5");
+    expect(values.slice(2)).toEqual([AFTER.date, AFTER.id, 101]);
+    expect(sql).not.toContain("OFFSET");
+  });
+
+  it("pages the unified list newest first, the order the client shows it", () => {
+    const { sql, values } = buildUnifiedMailHeaderIdPageQuery(USER, [ADDRESS], { after: AFTER }, 100);
+    expect(selectList(sql).trim()).toBe("mail_id, date::text AS cursor_date");
     expect(sql).toContain(
-      "AND (read > $3::boolean OR (read = $3::boolean AND (date, mail_id) < ($4::timestamptz, $5::uuid))) ORDER BY"
+      "AND (date, mail_id) < ($3::timestamptz, $4::uuid) ORDER BY date DESC, mail_id DESC LIMIT $5"
     );
-    expect(sql).toContain("LIMIT $6");
-    expect(values.slice(2)).toEqual([true, AFTER.date, AFTER.id, 101]);
+    expect(sql).not.toContain("ORDER BY read");
+    expect(values.slice(2)).toEqual([AFTER.date, AFTER.id, 101]);
   });
 
-  it("starts an unread-section unified cursor at read = false", () => {
-    const { values } = buildUnifiedMailHeadersQuery(USER, [ADDRESS], {
-      after: { date: AFTER.date, id: AFTER.id },
-    });
-    expect(values[2]).toBe(false);
+  it("starts the first unified page at the top", () => {
+    const { sql, values } = buildUnifiedMailHeaderIdPageQuery(USER, [ADDRESS], {}, 100);
+    expect(sql).not.toContain("(date, mail_id) <");
+    expect(values.slice(2)).toEqual([101]);
   });
 });

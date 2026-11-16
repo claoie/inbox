@@ -20,11 +20,10 @@ const decodeListCursor = (value: string): ListCursor | null => {
   try {
     const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString());
     if (!parsed || typeof parsed !== "object") return null;
-    const { date, id, read } = parsed as Record<string, unknown>;
+    const { date, id } = parsed as Record<string, unknown>;
     if (typeof date !== "string" || !PG_TIMESTAMPTZ_TEXT.test(date)) return null;
     if (!isUuid(id)) return null;
-    if (read !== undefined && typeof read !== "boolean") return null;
-    return { date, id, ...(read === undefined ? {} : { read }) };
+    return { date, id };
   } catch {
     return null;
   }

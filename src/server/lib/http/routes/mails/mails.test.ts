@@ -49,6 +49,14 @@ const mockRemoveAllowlistEntry = mock(async () => false as unknown);
 const mockSendMail = mock(async () => {});
 const mockMarkSpam = mock(async () => ({ found: false, changed: false }) as unknown);
 const mockGetAttachmentFile = mock(async () => undefined as Bun.BunFile | undefined);
+const mockGetMailHeaderPage = mock(async (..._args: unknown[]) => ({
+  batches: oneBatch<unknown>([]),
+  next: null as { date: string; id: string } | null,
+}));
+const mockGetUnifiedMailHeaderPage = mock(async (..._args: unknown[]) => ({
+  batches: oneBatch<unknown>([]),
+  next: null as { date: string; id: string } | null,
+}));
 const mockMailsTableQueryOne = mock(async () => null as unknown);
 const AUTH_ERROR_MESSAGE = "Authentication required";
 
@@ -64,8 +72,10 @@ const apiResult = async (result: unknown): Promise<unknown> =>
 
 mock.module("server", () => ({
   getMailHeaders: mockGetMailHeaders,
+  getMailHeaderPage: mockGetMailHeaderPage,
   getMailHeadersDelta: mockGetMailHeadersDelta,
   getUnifiedMailHeaders: mockGetUnifiedMailHeaders,
+  getUnifiedMailHeaderPage: mockGetUnifiedMailHeaderPage,
   getUnifiedMailHeadersDelta: mockGetUnifiedMailHeadersDelta,
   toMailHeaderData: (row: unknown) => row,
   getAccounts: mockGetAccounts,
@@ -1723,5 +1733,77 @@ describe("mails router multipart wiring", () => {
     expect(body.message).toMatch(new RegExp(`${MAX_ATTACHMENTS_PER_MAIL} attachments`));
     expect(mockSendMail).not.toHaveBeenCalled();
     expect(await leftoverSince(before)).toEqual([]);
+  });
+});
+
+// ── paged list (?limit= / ?cursor=) ──────────────────────────────────────────
+describe("paged list routes", () => {
+  const CURSOR = { date: "2026-11-15 02:55:04.123456+00", id: "22222222-2222-2222-2222-222222222222" };
+  const encoded = Buffer.from(JSON.stringify(CURSOR)).toString("base64url");
+
+  beforeEach(() => {
+    mockGetMailHeaders.mockClear();
+    mockGetMailHeaderPage.mockClear();
+    mockGetUnifiedMailHeaders.mockClear();
+    mockGetUnifiedMailHeaderPage.mockClear();
+    mockGetAccounts.mockClear();
+  });
+
+  const headersReq = (query: Record<string, string>) =>
+    makeReq({
+      method: "GET",
+      session: { user: makeUser("alice") },
+      params: { account: "alice@example.com" },
+      query,
+    });
+
+  it("answers ?limit= with one page and the next cursor, not the full list", async () => {
+    const { getHeadersRoute } = await import("./get-headers");
+    mockGetMailHeaderPage.mockResolvedValueOnce({ batches: oneBatch<unknown>([{ id: "m1" }]), next: CURSOR });
+
+    const result = (await apiResult(await getHeadersRoute.callback(headersReq({ limit: "100", sent: "1" })))) as ApiResponse<unknown>;
+
+    expect(result).toEqual({ status: "success", body: { next_cursor: encoded, headers: [{ id: "m1" }] } });
+    expect(mockGetMailHeaders).not.toHaveBeenCalled();
+    const [, account, options, limit, after] = mockGetMailHeaderPage.mock.calls[0];
+    expect(account).toBe("alice@example.com");
+    expect(options).toEqual({ sent: true, saved: false, spam: false });
+    expect(limit).toBe(100);
+    expect(after).toBeUndefined();
+  });
+
+  it("passes ?cursor= on as the position to start after, and ends with a null cursor", async () => {
+    const { getHeadersRoute } = await import("./get-headers");
+
+    const result = (await apiResult(await getHeadersRoute.callback(headersReq({ limit: "7", cursor: encoded })))) as ApiResponse<unknown>;
+
+    expect(result).toEqual({ status: "success", body: { next_cursor: null, headers: [] } });
+    expect(mockGetMailHeaderPage.mock.calls[0][4]).toEqual(CURSOR);
+  });
+
+  it("refuses a bad limit or cursor instead of answering with the full list", async () => {
+    const { getHeadersRoute } = await import("./get-headers");
+    for (const query of [{ limit: "0" }, { limit: "100", cursor: "nope" }, { cursor: encoded }]) {
+      const result = (await apiResult(await getHeadersRoute.callback(headersReq(query)))) as ApiResponse<unknown>;
+      expect(result.status).toBe("failed");
+    }
+    expect(mockGetMailHeaders).not.toHaveBeenCalled();
+    expect(mockGetMailHeaderPage).not.toHaveBeenCalled();
+  });
+
+  it("pages the unified list over the received account keys", async () => {
+    const { getUnifiedHeadersRoute } = await import("./get-unified-headers");
+    mockGetAccounts.mockResolvedValueOnce({ received: [{ key: "a@example.com" }], sent: [], spam: [] } as never);
+    mockGetUnifiedMailHeaderPage.mockResolvedValueOnce({ batches: oneBatch<unknown>([{ id: "u1" }]), next: CURSOR });
+
+    const req = makeReq({ method: "GET", session: { user: makeUser("alice") }, params: {}, query: { limit: "50", cursor: encoded } });
+    const result = (await apiResult(await getUnifiedHeadersRoute.callback(req))) as ApiResponse<unknown>;
+
+    expect(result).toEqual({ status: "success", body: { next_cursor: encoded, headers: [{ id: "u1" }] } });
+    expect(mockGetUnifiedMailHeaders).not.toHaveBeenCalled();
+    const [, addresses, limit, after] = mockGetUnifiedMailHeaderPage.mock.calls[0];
+    expect(addresses).toEqual(["a@example.com"]);
+    expect(limit).toBe(50);
+    expect(after).toEqual(CURSOR);
   });
 });

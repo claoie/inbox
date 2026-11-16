@@ -1,6 +1,7 @@
 import { QueryClient } from "react-query";
 import { MailHeaderData } from "common";
 import { accountsQueryUrl } from "client/Box/components/Accounts";
+import { restoreListPaging, snapshotListPaging } from "../Mails/listPages";
 
 export const threadQueryUrl = (mailId: string) => `/api/mails/thread/${mailId}`;
 
@@ -115,7 +116,7 @@ export const updateMailInCaches = (
     });
 };
 
-/** Every cached list and thread, for Undo to put back. */
+/** Every cached list and thread, with each list's paging position, for Undo to put back. */
 export const snapshotCaches = (queryClient: QueryClient) =>
   queryClient
     .getQueryCache()
@@ -126,12 +127,23 @@ export const snapshotCaches = (queryClient: QueryClient) =>
         isThreadKey(queryKey) ||
         queryKey === accountsQueryUrl
     )
-    .map(({ queryKey }) => [queryKey, queryClient.getQueryData(queryKey)] as const);
+    .map(
+      ({ queryKey }) =>
+        [
+          queryKey,
+          queryClient.getQueryData(queryKey),
+          typeof queryKey === "string" ? snapshotListPaging(queryKey) : undefined
+        ] as const
+    );
 
 export const restoreCaches = (
   queryClient: QueryClient,
   snapshot: ReturnType<typeof snapshotCaches>
-) => snapshot.forEach(([key, data]) => queryClient.setQueryData(key, data));
+) =>
+  snapshot.forEach(([key, data, paging]) => {
+    queryClient.setQueryData(key, data);
+    if (typeof key === "string") restoreListPaging(key, paging);
+  });
 
 /** Refetch lists, threads and counts after a change the server owns. */
 export const refreshMailQueries = (queryClient: QueryClient) =>

@@ -17,11 +17,20 @@ describe("parseListPageParams", () => {
     expect(parseListPageParams({ limit: "100" })).toEqual({ paged: true, limit: 100 });
   });
 
-  it("round-trips a cursor it encoded, with and without read", () => {
-    for (const cursor of [CURSOR, { ...CURSOR, read: false }]) {
-      expect(
-        parseListPageParams({ limit: "100", cursor: encodeListCursor(cursor)! })
-      ).toEqual({ paged: true, limit: 100, after: cursor });
+  it("round-trips a cursor it encoded", () => {
+    expect(
+      parseListPageParams({ limit: "100", cursor: encodeListCursor(CURSOR)! })
+    ).toEqual({ paged: true, limit: 100, after: CURSOR });
+  });
+
+  it("accepts the text form of any session time zone", () => {
+    for (const date of ["2026-11-15 02:55:04-07", "2026-11-15 02:55:04.5+05:30", "2026-03-08 03:00:00+00"]) {
+      const cursor = encodeListCursor({ date, id: CURSOR.id })!;
+      expect(parseListPageParams({ limit: "1", cursor })).toEqual({
+        paged: true,
+        limit: 1,
+        after: { date, id: CURSOR.id },
+      });
     }
   });
 
@@ -51,7 +60,6 @@ describe("parseListPageParams", () => {
       encode({ ...CURSOR, id: "1; DROP TABLE mails" }),
       encode({ ...CURSOR, date: "yesterday" }),
       encode({ ...CURSOR, date: "2026-11-15T02:55:04Z" }),
-      encode({ ...CURSOR, read: "false" }),
       encode({ id: CURSOR.id }),
     ]) {
       expect(parseListPageParams({ limit: "100", cursor })).toHaveProperty("error");

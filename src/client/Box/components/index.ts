@@ -4,7 +4,7 @@ import { Category } from "../../App";
 import { queryClient } from "../../lib/queryClient";
 import { AccountsCache } from "./Accounts";
 import { MailsCache } from "./Mails";
-import { missingFromList } from "./Mails/listPages";
+import { listCountInAccounts, missingFromList } from "./Mails/listPages";
 
 export const Writer = lazy(() => import("./Writer"));
 export const Mails = lazy(() => import("./Mails"));
@@ -28,42 +28,16 @@ export class MailsSynchronizer {
 
       if (!accounts || !mails) return;
 
-      // The unified list holds received mail from every account, so the
-      // expected count is the received total — not the parked account's.
-      if (allAccounts) {
-        const countInAccounts = accounts.received.reduce(
-          (acc, e) => acc + e.doc_count,
-          0
-        );
-        this.difference = missingFromList(
-          this.mailsKey,
-          countInAccounts,
-          mails.length
-        );
-        return;
-      }
-
-      const accountsKey = category === Category.SentMails ? "sent" : "received";
-      const accountData = accounts[accountsKey].find((e) => e.key === account);
-
-      let countInAccounts: number;
-
-      if (category === Category.SavedMails)
-        countInAccounts =
-          (accounts.received.find((e) => e.key === account)?.saved_doc_count ||
-            0) +
-          (accounts.sent.find((e) => e.key === account)?.saved_doc_count || 0);
-      else countInAccounts = accountData?.doc_count || 0;
-
-      const countInMails = mails.reduce((acc, e) => {
-        switch (category) {
-          case Category.SavedMails:
-            if (e.saved) return acc + 1;
-            return acc;
-          default:
-            return acc + 1;
-        }
-      }, 0);
+      const countInAccounts = listCountInAccounts(
+        accounts,
+        account,
+        category,
+        allAccounts
+      );
+      const countInMails =
+        !allAccounts && category === Category.SavedMails
+          ? mails.filter((e) => e.saved).length
+          : mails.length;
 
       this.difference = missingFromList(
         this.mailsKey,

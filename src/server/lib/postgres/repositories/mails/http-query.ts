@@ -46,15 +46,14 @@ export interface GetMailHeadersOptions {
 }
 
 /**
- * The sort keys of the row a page ended on. The next page starts strictly
- * after it, so mail arriving or changing between page loads never shifts the
- * rows still to come the way an offset would. `read` is set for the unified
- * list only, whose order leads with it.
+ * The sort keys of the row a page ended on, in newest-first order. The next
+ * page starts strictly after it, so mail arriving or changing between page
+ * loads never shifts the rows still to come the way an offset would. Both
+ * keys are immutable, so a mail never moves across the cursor.
  */
 export interface ListCursor {
   date: string;
   id: string;
-  read?: boolean;
 }
 
 /**
@@ -62,7 +61,7 @@ export interface ListCursor {
  * cursor is built from. `date` is read as text so the cursor keeps the
  * column's microseconds, which a JS Date would round away.
  */
-export const LIST_CURSOR_COLUMNS = `${MAIL_ID}, ${DATE}::text AS cursor_date, ${READ}`;
+export const LIST_CURSOR_COLUMNS = `${MAIL_ID}, ${DATE}::text AS cursor_date`;
 
 export const buildHeaderAddressCondition = (
   options: Pick<GetMailHeadersOptions, "sent" | "saved">
@@ -201,6 +200,23 @@ export const buildMailHeadersQuery = (
   return { sql, values };
 };
 
+/**
+ * One page of a folder's ids: `limit` rows after `options.after`, plus one
+ * more so the caller can tell whether another page follows.
+ */
+export const buildMailHeaderIdPageQuery = (
+  user_id: string,
+  address: string,
+  options: GetMailHeadersOptions,
+  limit: number
+): { sql: string; values: ParamValue[] } =>
+  buildMailHeadersQuery(
+    user_id,
+    address,
+    { ...options, from: undefined, size: limit + 1 },
+    LIST_CURSOR_COLUMNS
+  );
+
 export const buildDeltaAsOfQuery = (): {
   sql: string;
   values: ParamValue[];
@@ -242,6 +258,11 @@ export interface UnifiedMailHeadersOptions {
   from?: number;
   size?: number;
   since?: string;
+  /** Newest first, as the client shows the list, instead of unread first. A
+   * paged list needs it: under unread-first a partial list would leave out
+   * read mail newer than the unread mail it holds. */
+  newestFirst?: boolean;
+  /** Only with `newestFirst`: start after this position. */
   after?: ListCursor;
 }
 
@@ -283,16 +304,18 @@ export const buildUnifiedMailHeadersQuery = (
     values.push(options.since);
   }
 
-  if (options.after) {
-    const read = paramIdx;
-    sql += ` AND (read > $${read}::boolean OR (read = $${read}::boolean AND (date, mail_id) < ($${read + 1}::timestamptz, $${read + 2}::uuid)))`;
-    values.push(options.after.read ?? false, options.after.date, options.after.id);
-    paramIdx += 3;
+  if (options.newestFirst) {
+    if (options.after) {
+      sql += ` AND (date, mail_id) < ($${paramIdx}::timestamptz, $${paramIdx + 1}::uuid)`;
+      values.push(options.after.date, options.after.id);
+      paramIdx += 2;
+    }
+    sql += ` ORDER BY date DESC, mail_id DESC`;
+  } else {
+    // Unread-then-recent (design doc §8): unread mail first, newest first
+    // within each read state — the per-account list is date-only.
+    sql += ` ORDER BY read ASC, date DESC`;
   }
-
-  // Unread-then-recent (design doc §8): unread mail first, newest first
-  // within each read state — the per-account list is date-only.
-  sql += ` ORDER BY read ASC, date DESC, mail_id DESC`;
 
   if (options.size !== undefined) {
     sql += ` LIMIT $${paramIdx++}`;
@@ -305,6 +328,20 @@ export const buildUnifiedMailHeadersQuery = (
   }
   return { sql, values };
 };
+
+/** The unified list's `buildMailHeaderIdPageQuery`, newest first like the client shows it. */
+export const buildUnifiedMailHeaderIdPageQuery = (
+  user_id: string,
+  addresses: string[],
+  options: UnifiedMailHeadersOptions,
+  limit: number
+): { sql: string; values: ParamValue[] } =>
+  buildUnifiedMailHeadersQuery(
+    user_id,
+    addresses,
+    { ...options, newestFirst: true, from: undefined, size: limit + 1 },
+    LIST_CURSOR_COLUMNS
+  );
 
 export const buildUnifiedDeltaEvictionQuery = (
   user_id: string,

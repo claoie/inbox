@@ -61,7 +61,14 @@ import {
   fetchAccounts
 } from "client/Box/components/Accounts";
 import { getMailsQueryUrl } from "./mailsQuery";
-import { fetchList, fetchNextListPage, hasNextListPage } from "./listPages";
+import {
+  fetchList,
+  fetchNextListPage,
+  hasNextListPage,
+  listCountInAccounts,
+  restoreListPaging,
+  snapshotListPaging
+} from "./listPages";
 
 /** Rows kept loaded beyond the ones on screen: three scroll steps of eight. */
 const PREFETCH_ROWS = 24;
@@ -309,6 +316,7 @@ const RenderedMail = ({
     // Snapshot the caches so Undo can put the row back exactly where it was.
     const listUrl = getMailsQueryUrl(selectedAccount, selectedCategory, unified);
     const listBefore = queryClient.getQueryData<MailHeaderData[]>(listUrl);
+    const pagingBefore = snapshotListPaging(listUrl);
     const accountsBefore = queryClient.getQueryData<AccountsGetResponse>(
       accountsCache.key
     );
@@ -333,7 +341,10 @@ const RenderedMail = ({
         onClick: () => {
           const cancelled = mails.map((m) => cancelDelete(m.id));
           if (!cancelled.some(Boolean)) return;
-          if (listBefore) queryClient.setQueryData(listUrl, listBefore);
+          if (listBefore) {
+            queryClient.setQueryData(listUrl, listBefore);
+            restoreListPaging(listUrl, pagingBefore);
+          }
           if (accountsBefore) {
             queryClient.setQueryData(accountsCache.key, accountsBefore);
           }
@@ -657,7 +668,14 @@ const RenderedMails = ({
 
   const getMails = () =>
     withPendingReads(async () => {
-      if (!isSearch) return fetchList(queryUrl);
+      if (!isSearch) {
+        return fetchList(queryUrl, () => {
+          const accounts = accountsCache.get();
+          return accounts
+            ? listCountInAccounts(accounts, selectedAccount, selectedCategory, unified)
+            : undefined;
+        });
+      }
       const { status, body, message } = await call.get<SearchGetResponse>(queryUrl);
       if (status === "success") {
         return withoutPendingDeletes(
