@@ -1,6 +1,5 @@
 import { describe, it, expect } from "bun:test";
 import { Category } from "client";
-import fs from "fs";
 import path from "path";
 import {
   ACCOUNTS_COLUMN_MIN_WIDTH,
@@ -40,13 +39,28 @@ describe("opensAccountsAfterFolderChange", () => {
 });
 
 describe("accounts column", () => {
-  it("fits the rail, the column and the full-width list", () => {
-    const rail = 80;
-    const column = 320;
-    const listMaxWidth = 950;
-    const listPadding = 16;
+  // Stylesheets are read with Bun.file, not fs: sibling suites
+  // mock.module("fs", ...), which is process-global in Bun.
+  const readStyles = (relative: string) =>
+    Bun.file(path.join(import.meta.dir, relative)).text();
+
+  const remToPx = (value: string) =>
+    value.endsWith("rem") ? parseFloat(value) * 16 : parseFloat(value);
+
+  it("fits the rail, the column and the full-width list", async () => {
+    const variables = await readStyles("../../../variables.css");
+    const shell = await readStyles("../../index.scss");
+    const maxWidth = Number(variables.match(/--maxWidth:\s*(\d+)px;/)![1]);
+    const [, rail, column] = shell.match(
+      /&\.accounts-column\s*\{[^}]*grid-template-columns:\s*(\d+)px (\d+)px minmax\(0, 1fr\);/s
+    )!;
+    const [, right, , left] = shell
+      .match(/\.center-col\s*\{[^}]*?padding:\s*([^;]+);/s)![1]
+      .trim()
+      .split(/\s+/)
+      .map(remToPx);
     expect(ACCOUNTS_COLUMN_MIN_WIDTH).toBe(
-      rail + column + listMaxWidth + listPadding
+      Number(rail) + Number(column) + right + left + maxWidth
     );
   });
 
@@ -80,24 +94,34 @@ describe("accounts column", () => {
     expect(isAccountsMenuOpen(390, false)).toBe(false);
   });
 
-  it("puts the column in the grid's middle track, not over the list", () => {
-    const shell = fs.readFileSync(
-      path.join(import.meta.dir, "../../index.scss"),
-      "utf8"
-    );
-    expect(shell).toMatch(
-      /&\.accounts-column\s*\{[^}]*grid-template-columns:\s*80px 320px minmax\(0, 1fr\);/s
-    );
-    const accounts = fs.readFileSync(
-      path.join(import.meta.dir, "index.scss"),
-      "utf8"
-    );
+  // Every placement the popover sets has to be undone, or the in-grid
+  // column inherits its offset, transform, height cap or stacking and sits
+  // over the list.
+  it("puts the column in the grid's middle track, not over the list", async () => {
+    const accounts = await readStyles("index.scss");
     const rule = accounts.match(
       /\.shell\.accounts-column \.tab-holder \.accounts\s*\{([^}]*)\}/s
     );
     expect(rule).not.toBeNull();
-    expect(rule![1]).toMatch(/position:\s*relative;/);
-    expect(rule![1]).toMatch(/transform:\s*none;/);
-    expect(rule![1]).toMatch(/width:\s*320px;/);
+    const declarations = Object.fromEntries(
+      rule![1]
+        .split(";")
+        .map((d) => d.trim())
+        .filter(Boolean)
+        .map((d) => d.split(/:\s*/) as [string, string])
+    );
+    expect(declarations).toEqual({
+      position: "relative",
+      top: "auto",
+      left: "auto",
+      transform: "none",
+      width: "320px",
+      height: "100%",
+      "max-height": "none",
+      "z-index": "auto",
+      "border-radius": "0",
+      "box-shadow": "none",
+      "border-right": "1px solid var(--divider)"
+    });
   });
 });

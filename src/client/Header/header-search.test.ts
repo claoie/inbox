@@ -17,6 +17,9 @@ beforeAll(() => {
 });
 afterAll(() => GlobalRegistrator.unregister());
 
+// Below the accounts-column breakpoint, where the title is the menu button.
+const menuWidth = 1024;
+
 type MountOptions = {
   width?: number;
   newMailsTotal?: number;
@@ -53,7 +56,7 @@ const mountHeader = async (options: MountOptions = {}) => {
   const enterSearchCalls: number[] = [];
 
   const contextValue = {
-    viewSize: { width: options.width ?? 1920, height: 1080 },
+    viewSize: { width: options.width ?? menuWidth, height: 1080 },
     domainName: "example.com",
     userInfo,
     setUserInfo: () => {},
@@ -247,14 +250,10 @@ describe("header controls", () => {
   });
 });
 
-// Below the accounts-column breakpoint, where the list is a menu.
-const menuWidth = 1024;
-
 describe("header accounts menu button", () => {
   it("opens the accounts menu from the account name", async () => {
     const calls: unknown[] = [];
     const mount = await mountHeader({
-      width: menuWidth,
       setIsAccountsOpen: (v: unknown) => calls.push(v)
     });
     try {
@@ -277,7 +276,6 @@ describe("header accounts menu button", () => {
     const accounts: unknown[] = [];
     const writer: unknown[] = [];
     const mount = await mountHeader({
-      width: menuWidth,
       isWriterOpen: true,
       setIsWriterOpen: (v: unknown) => writer.push(v),
       setIsAccountsOpen: (v: unknown) => accounts.push(v)
@@ -299,7 +297,6 @@ describe("header accounts menu button", () => {
   it("Escape closes the open menu", async () => {
     const calls: unknown[] = [];
     const mount = await mountHeader({
-      width: menuWidth,
       isAccountsOpen: true,
       setIsAccountsOpen: (v: unknown) => calls.push(v)
     });

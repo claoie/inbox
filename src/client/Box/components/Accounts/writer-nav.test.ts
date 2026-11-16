@@ -566,6 +566,22 @@ describe("Folder tabs show numeric unread counts", () => {
   });
 });
 
+describe("Writer closes when picking an account", () => {
+  // The accounts column is on screen with the writer open, so a pick
+  // happens without the header path that closes the writer first.
+  it("picking an account in the column with the writer open closes the writer", async () => {
+    const { writerOpenCalls, selectedAccountCalls, clickAccountRow, teardown } =
+      await mountAccounts({ width: 1920, writerOpen: true, accountsOpen: false });
+    try {
+      await clickAccountRow("fern");
+      expect(writerOpenCalls).toEqual([false]);
+      expect(selectedAccountCalls).toContain("fern@example.com");
+    } finally {
+      await teardown();
+    }
+  });
+});
+
 describe("Writer closes when tapping a found account in Search", () => {
   it("tapping a found account with the writer open closes the writer and jumps to its folder", async () => {
     const {
