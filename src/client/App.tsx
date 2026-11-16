@@ -14,6 +14,10 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import { SignedUser, ReplyData } from "common";
 import { DomainGetResponse } from "server";
+import {
+  hasAccountsColumn,
+  isAccountsMenuOpen
+} from "./Box/components/Accounts/accountsMenu";
 
 import {
   Header,
@@ -57,6 +61,8 @@ export interface ContextType {
   domainName: string;
   userInfo: SignedUser | undefined;
   setUserInfo: Dispatch<SetStateAction<ContextType["userInfo"]>>;
+  /** Whether the accounts menu is open; never on widths that show the
+   * accounts list as a column instead. */
   isAccountsOpen: boolean;
   setIsAccountsOpen: Dispatch<SetStateAction<ContextType["isAccountsOpen"]>>;
   isWriterOpen: boolean;
@@ -150,6 +156,12 @@ const App = ({ user: session }: Props) => {
   const [userInfo, setUserInfo] = useState(session);
   // The accounts menu is a popover opened from the header; it starts closed.
   const [isAccountsOpen, setIsAccountsOpen] = useState(false);
+  const isAccountsColumn = hasAccountsColumn(viewSize.width);
+  // Widening into the column layout closes the menu for good, so narrowing
+  // again doesn't bring back a menu opened before.
+  useEffect(() => {
+    if (isAccountsColumn) setIsAccountsOpen(false);
+  }, [isAccountsColumn]);
   const [isWriterOpen, setIsWriterOpen] = useLocalStorage(
     "isWriterOpen",
     false
@@ -358,7 +370,7 @@ const App = ({ user: session }: Props) => {
     userInfo,
     setUserInfo,
     domainName,
-    isAccountsOpen,
+    isAccountsOpen: isAccountsMenuOpen(viewSize.width, isAccountsOpen),
     setIsAccountsOpen,
     isWriterOpen,
     setIsWriterOpen,

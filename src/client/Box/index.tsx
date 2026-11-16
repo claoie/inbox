@@ -9,19 +9,22 @@ import {
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { openedFromList } from "./components/Mails/mailPage";
 import { Writer, Accounts, Mails, Settings, Thread } from "./components";
+import { accountsShellClass } from "./components/Accounts/accountsMenu";
 import { Context } from "client";
 import "./index.scss";
 
 export * from "./components";
 
-// The shell is a CSS grid (design doc §4): an 80px rail, the 320px accounts
-// column, and the centered message list. The accounts column leaves the grid
-// and becomes an overlay below 1050px; the rail becomes a bottom bar below
-// 750px (see Box/index.scss). Compose docks at the right edge of the grid,
-// fully on-screen — there are no negative pane offsets anywhere in this
-// shell, and no swipe math: the rail buttons are the explicit controls.
+// The shell is a CSS grid (design doc §4): an 80px rail and the centered
+// message list, with the accounts list as a 320px column between them on
+// wide screens (see `hasAccountsColumn`) and a menu opened from the header
+// below that. The rail becomes a bottom bar below 750px (see
+// Box/index.scss). Compose docks at the right edge of the grid, fully
+// on-screen — there are no negative pane offsets anywhere in this shell, and
+// no swipe math: the rail buttons are the explicit controls.
 const Box = () => {
   const {
+    viewSize,
     isAccountsOpen,
     setIsAccountsOpen,
     isWriterOpen,
@@ -78,7 +81,11 @@ const Box = () => {
   };
 
   return (
-    <div className={"shell" + (isAccountsOpen ? "" : " accounts-closed")}>
+    <div
+      className={
+        "shell " + accountsShellClass(viewSize.width, isAccountsOpen)
+      }
+    >
       <Suspense fallback={<></>}>
         <Accounts setPage={setPage} />
       </Suspense>

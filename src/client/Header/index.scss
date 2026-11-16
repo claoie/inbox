@@ -22,6 +22,12 @@
     white-space: nowrap;
   }
 
+  .title-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   /* The account name is the accounts menu button: the name, its unread
    * count and a chevron, centred. One line, always — a long account name
    * truncates instead of wrapping down over the list. */
@@ -48,12 +54,6 @@
     &:focus-visible {
       outline: 2px solid var(--blue);
       outline-offset: 1px;
-    }
-
-    .title-text {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
 
     .title-chevron {

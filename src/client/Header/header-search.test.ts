@@ -18,6 +18,7 @@ beforeAll(() => {
 afterAll(() => GlobalRegistrator.unregister());
 
 type MountOptions = {
+  width?: number;
   newMailsTotal?: number;
   userInfo?: { username: string } | undefined;
   selectedAccount?: string;
@@ -52,7 +53,7 @@ const mountHeader = async (options: MountOptions = {}) => {
   const enterSearchCalls: number[] = [];
 
   const contextValue = {
-    viewSize: { width: 1920, height: 1080 },
+    viewSize: { width: options.width ?? 1920, height: 1080 },
     domainName: "example.com",
     userInfo,
     setUserInfo: () => {},
@@ -246,10 +247,14 @@ describe("header controls", () => {
   });
 });
 
+// Below the accounts-column breakpoint, where the list is a menu.
+const menuWidth = 1024;
+
 describe("header accounts menu button", () => {
   it("opens the accounts menu from the account name", async () => {
     const calls: unknown[] = [];
     const mount = await mountHeader({
+      width: menuWidth,
       setIsAccountsOpen: (v: unknown) => calls.push(v)
     });
     try {
@@ -272,6 +277,7 @@ describe("header accounts menu button", () => {
     const accounts: unknown[] = [];
     const writer: unknown[] = [];
     const mount = await mountHeader({
+      width: menuWidth,
       isWriterOpen: true,
       setIsWriterOpen: (v: unknown) => writer.push(v),
       setIsAccountsOpen: (v: unknown) => accounts.push(v)
@@ -293,6 +299,7 @@ describe("header accounts menu button", () => {
   it("Escape closes the open menu", async () => {
     const calls: unknown[] = [];
     const mount = await mountHeader({
+      width: menuWidth,
       isAccountsOpen: true,
       setIsAccountsOpen: (v: unknown) => calls.push(v)
     });
@@ -308,6 +315,59 @@ describe("header accounts menu button", () => {
       expect(calls).toEqual([false]);
       // Handled here, so a mail page underneath doesn't also go back.
       expect(event.defaultPrevented).toBe(true);
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("opens the menu on a phone too", async () => {
+    const calls: unknown[] = [];
+    const mount = await mountHeader({
+      width: 390,
+      setIsAccountsOpen: (v: unknown) => calls.push(v)
+    });
+    try {
+      const { act } = await import("react");
+      await act(async () => {
+        (
+          mount.container.querySelector("button.title-button") as HTMLElement
+        ).click();
+      });
+      expect(calls).toEqual([true]);
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  // The accounts list is a column on screen there, so there's no menu to
+  // open: the title names the mailbox, with its count, as plain text.
+  it("is plain text where the accounts list is a column", async () => {
+    const calls: unknown[] = [];
+    const mount = await mountHeader({
+      width: 1366,
+      newMailsTotal: 3,
+      selectedAccount: "maple@example.com",
+      accounts: {
+        received: [account("maple@example.com", 3)],
+        sent: [],
+        spam: []
+      },
+      setIsAccountsOpen: (v: unknown) => calls.push(v)
+    });
+    try {
+      expect(mount.container.querySelector("button")).toBeNull();
+      expect(mount.container.querySelector("[aria-controls]")).toBeNull();
+      expect(mount.container.querySelector("h1 .title-text")?.textContent).toBe(
+        "maple@example.com"
+      );
+      expect(
+        mount.container.querySelector("h1 .header-unread-count")?.textContent
+      ).toBe("3");
+      const { act } = await import("react");
+      await act(async () => {
+        (mount.container.querySelector("h1") as HTMLElement).click();
+      });
+      expect(calls).toEqual([]);
     } finally {
       await mount.teardown();
     }

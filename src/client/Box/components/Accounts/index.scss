@@ -444,8 +444,8 @@
 }
 
 /* The accounts menu: opened from the account name in the header and shown
- * centred right under it, at every width — a popover over the list, not a
- * grid column. */
+ * centred right under it — a popover over the list. Wide screens show the
+ * list as a grid column instead (below). */
 .tab-holder .accounts {
   position: fixed;
   top: calc(var(--headerHeight) + 4px);
@@ -457,6 +457,22 @@
   z-index: 24;
   border-radius: 12px;
   box-shadow: 0 12px 40px rgb(0 0 0 / 45%);
+}
+
+/* Wide screens: the list is the shell grid's middle column, always shown,
+ * so none of the menu's floating placement applies. */
+.shell.accounts-column .tab-holder .accounts {
+  position: relative;
+  top: auto;
+  left: auto;
+  transform: none;
+  width: 320px;
+  height: 100%;
+  max-height: none;
+  z-index: auto;
+  border-radius: 0;
+  box-shadow: none;
+  border-right: 1px solid var(--divider);
 }
 
 /* Below 750px the rail becomes a bottom bar (design doc §4) and the

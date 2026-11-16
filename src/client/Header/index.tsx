@@ -6,6 +6,7 @@ import {
   accountsQueryUrl,
   fetchAccounts
 } from "client/Box/components/Accounts";
+import { hasAccountsColumn } from "client/Box/components/Accounts/accountsMenu";
 import "./index.scss";
 
 /**
@@ -141,12 +142,14 @@ const Header = () => {
     ) : null;
 
   // Signed in, the title is the accounts menu button: it names the current
-  // mailbox and opens the account list centred beneath it. Search and
-  // Compose live in the rail (the bottom bar on a phone), which is always on
-  // screen.
+  // mailbox and opens the account list centred beneath it. Where the list is
+  // already a column on screen there is no menu to open, so the title is
+  // plain text. Search and Compose live in the rail (the bottom bar on a
+  // phone), which is always on screen.
+  const isMenuButton = !!userInfo && !hasAccountsColumn(viewSize.width);
   return (
     <header id="title_bar" className="sticky">
-      {userInfo ? (
+      {isMenuButton ? (
         <h1>
           <button
             type="button"
@@ -164,7 +167,10 @@ const Header = () => {
           </button>
         </h1>
       ) : (
-        <h1 title={fullTitle}>{title}</h1>
+        <h1 title={fullTitle}>
+          <span className="title-text">{title}</span>
+          {pill}
+        </h1>
       )}
     </header>
   );

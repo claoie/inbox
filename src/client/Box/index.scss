@@ -1,7 +1,8 @@
 /* The shell grid (design doc §4): an 80px rail and the centered message
- * list. The accounts list is a menu opened from the header, centred over the
- * list (see Accounts/index.scss), not a column. Below 750px the rail becomes
- * a bottom bar and the grid is a single column. */
+ * list. On wide screens (.accounts-column) the accounts list is a 320px
+ * column between them; below that it is a menu opened from the header,
+ * centred over the list (see Accounts/index.scss). Below 750px the rail
+ * becomes a bottom bar and the grid is a single column. */
 .shell {
   height: calc(100vh - var(--headerHeight));
   height: calc(100dvh - var(--headerHeight));
@@ -18,6 +19,11 @@
     .accounts {
       display: none;
     }
+  }
+
+  &.accounts-column {
+    grid-template-columns: 80px 320px minmax(0, 1fr);
+    --center-left: 400px;
   }
 
   /* Settings opens over the list in the same cell, so the list keeps its
