@@ -52,6 +52,10 @@ if ("serviceWorker" in navigator) {
     reportBuild();
   });
   navigator.serviceWorker.addEventListener("controllerchange", reportBuild);
+  window.addEventListener("pageshow", (event) => event.persisted && reportBuild());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") reportBuild();
+  });
 }
 
 const root = createRoot(document.getElementById("root") as HTMLElement);

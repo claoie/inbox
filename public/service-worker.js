@@ -41,8 +41,13 @@ const readStored = async (cache) => {
   const retained = Array.isArray(stored.retained)
     ? stored.retained.map(asPaths).filter(Boolean)
     : [];
-  const windows =
-    stored.windows && typeof stored.windows === "object" ? stored.windows : {};
+  const windows = Object.fromEntries(
+    Object.entries(
+      stored.windows && typeof stored.windows === "object" ? stored.windows : {},
+    ).filter(
+      ([, w]) => w && typeof w.entry === "string" && typeof w.reportedAt === "number",
+    ),
+  );
   return {
     current: asPaths(stored.current) || [],
     previous: asPaths(stored.previous) || [],
@@ -64,15 +69,23 @@ const openWindowIds = async () => {
   return new Set(windows.map((w) => w.id));
 };
 
+// Suspended and back/forward-cached windows may be missing from matchAll, so a
+// window that stops being listed still holds its build until its last report
+// is older than this.
+const UNLISTED_WINDOW_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
 // A build stays cached while any open window still runs it, however many
 // deploys ago it was loaded; current and previous cover windows that have not
 // reported their build yet.
 const prune = async (cache, stored) => {
   const openIds = await openWindowIds();
+  const now = Date.now();
   const windows = Object.fromEntries(
-    Object.entries(stored.windows).filter(([id]) => openIds.has(id)),
+    Object.entries(stored.windows).filter(
+      ([id, w]) => openIds.has(id) || now - w.reportedAt < UNLISTED_WINDOW_TTL_MS,
+    ),
   );
-  const runningEntries = new Set(Object.values(windows));
+  const runningEntries = new Set(Object.values(windows).map((w) => w.entry));
   const isRunning = (build) => build.some((a) => runningEntries.has(a));
 
   const currentKey = stored.current.join();
@@ -133,8 +146,8 @@ const recordWindowBuild = (windowId, entry) =>
   serialized(async () => {
     const cache = await caches.open(CACHE_NAME);
     const stored = await readStored(cache);
-    if (stored.windows[windowId] === entry) return;
-    await writeStored(cache, { ...stored, windows: { ...stored.windows, [windowId]: entry } });
+    const windows = { ...stored.windows, [windowId]: { entry, reportedAt: Date.now() } };
+    await writeStored(cache, { ...stored, windows });
   });
 
 self.addEventListener("message", (event) => {
