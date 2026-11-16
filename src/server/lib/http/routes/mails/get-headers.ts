@@ -1,6 +1,7 @@
 import { MailHeaderDataType } from "common";
 import {
   getMailHeaders,
+  getMailHeaderPage,
   getMailHeadersDelta,
   toMailHeaderData,
   addressToUsername,
@@ -8,9 +9,12 @@ import {
 } from "server";
 import { jsonList } from "../../respond";
 import { Route } from "../route";
+import { encodeListCursor, ListPageResponse, parseListPageParams } from "./list-page";
 
-// Full-list response (no `?since=`). Unchanged shape — old clients keep working.
+// Full-list response (no `?since=`, no `?limit=`). Unchanged shape — old clients keep working.
 export type HeadersGetResponse = MailHeaderDataType[];
+
+export type HeadersPageGetResponse = ListPageResponse<MailHeaderDataType>;
 
 export interface HeadersDeltaGetResponse {
   as_of: string;
@@ -19,7 +23,7 @@ export interface HeadersDeltaGetResponse {
 }
 
 export const getHeadersRoute = new Route<
-  HeadersGetResponse | HeadersDeltaGetResponse
+  HeadersGetResponse | HeadersDeltaGetResponse | HeadersPageGetResponse
 >(
   "GET",
   "/headers/:account",
@@ -61,6 +65,22 @@ export const getHeadersRoute = new Route<
         since
       );
       return { status: "success", body: delta };
+    }
+
+    const pageParams = parseListPageParams(req.query);
+    if ("error" in pageParams) return { status: "failed", message: pageParams.error };
+    if (pageParams.paged) {
+      const { batches, next } = await getMailHeaderPage(
+        user,
+        req.params.account,
+        options,
+        pageParams.limit,
+        pageParams.after
+      );
+      return jsonList(batches, toMailHeaderData, {
+        listKey: "headers",
+        fields: { next_cursor: encodeListCursor(next) }
+      });
     }
 
     return jsonList(await getMailHeaders(user, req.params.account, options), toMailHeaderData);

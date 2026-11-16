@@ -71,7 +71,7 @@ beforeEach(() => {
     if (url.startsWith("/api/mails/search/"))
       return { status: "success", body: [mailTwo] };
     if (url.startsWith("/api/mails/headers/"))
-      return { status: "success", body: [mailOne, mailTwo] };
+      return { status: "success", body: { next_cursor: null, headers: [mailOne, mailTwo] } };
     return { status: "success", body: [] };
   }) as typeof call.get;
 });

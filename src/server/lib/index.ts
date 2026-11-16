@@ -19,8 +19,10 @@ export { push } from "./push";
 // Mails module (uses postgres internally)
 export {
   getMailHeaders,
+  getMailHeaderPage,
   getMailHeadersDelta,
   getUnifiedMailHeaders,
+  getUnifiedMailHeaderPage,
   getUnifiedMailHeadersDelta,
   toMailHeaderData,
   getMailBody,

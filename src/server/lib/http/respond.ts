@@ -37,10 +37,19 @@ const LIST_CHUNK_CHARS = 64 * 1024;
  * for the rows `batches` yields, built one row at a time: the mapped list and
  * its whole JSON string never exist at once, so a 10,000-row list costs its
  * UTF-8 bytes and one batch rather than several copies of itself.
+ *
+ * With `page`, the body is an object instead: `page`'s fields, then the list
+ * under `page.listKey`.
+ *
+ * ```ts
+ * jsonList(batches, toItem, { listKey: "headers", fields: { next_cursor } })
+ * // {"status":"success","body":{"next_cursor":…,"headers":[…]}}
+ * ```
  */
 export const jsonList = async <R>(
   batches: AsyncIterable<readonly R[]>,
-  toItem: (row: R) => unknown
+  toItem: (row: R) => unknown,
+  page?: { listKey: string; fields: Record<string, unknown> }
 ): Promise<Response> => {
   const encoder = new TextEncoder();
   const hasher = new Bun.CryptoHasher("sha1");
@@ -53,7 +62,11 @@ export const jsonList = async <R>(
     byteLength += bytes.byteLength;
   };
 
-  let chunk = '{"status":"success","body":[';
+  // The object's own JSON with its empty list left open: `{…,"key":[`.
+  const open = page
+    ? JSON.stringify({ ...page.fields, [page.listKey]: [] }).slice(0, -2)
+    : "[";
+  let chunk = '{"status":"success","body":' + open;
   let first = true;
   for await (const rows of batches) {
     for (const row of rows) {
@@ -65,7 +78,7 @@ export const jsonList = async <R>(
       }
     }
   }
-  flush(chunk + "]}");
+  flush(chunk + (page ? "]}}" : "]}"));
 
   const hash = hasher.digest("base64").slice(0, 27);
   const body = new ReadableStream<Uint8Array>({

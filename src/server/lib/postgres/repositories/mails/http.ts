@@ -2,6 +2,8 @@ import { logger } from "../../../logger";
 import { pool } from "../../client";
 import {
   GetMailHeadersOptions,
+  LIST_CURSOR_COLUMNS,
+  ListCursor,
   UnifiedMailHeadersOptions,
   buildAccountStatsQuery,
   buildDeltaAsOfQuery,
@@ -15,7 +17,7 @@ import {
   buildUnreadNotificationsQuery,
 } from "./http-query";
 
-export type { GetMailHeadersOptions, UnifiedMailHeadersOptions };
+export type { GetMailHeadersOptions, ListCursor, UnifiedMailHeadersOptions };
 
 /**
  * Represents the subset of mail fields returned by getMailHeaders.
@@ -90,6 +92,66 @@ export const getUnifiedMailHeaderIds = async (
   );
   const result = await pool.query<{ mail_id: string }>(sql, values);
   return result.rows.map((row) => row.mail_id);
+};
+
+/** One page of a list: its ids in order, and where the next page starts (null on the last page). */
+export interface MailIdPage {
+  ids: string[];
+  next: ListCursor | null;
+}
+
+interface CursorRow {
+  mail_id: string;
+  cursor_date: string;
+  read: boolean;
+}
+
+// The query asks for one row past the page, so a full page is known to be the
+// last one without a second round trip.
+const toIdPage = (rows: CursorRow[], limit: number, withRead: boolean): MailIdPage => {
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  const next =
+    rows.length > limit && last
+      ? {
+          date: last.cursor_date,
+          id: last.mail_id,
+          ...(withRead ? { read: last.read } : {}),
+        }
+      : null;
+  return { ids: page.map((row) => row.mail_id), next };
+};
+
+export const getMailHeaderIdPage = async (
+  user_id: string,
+  address: string,
+  options: GetMailHeadersOptions,
+  limit: number
+): Promise<MailIdPage> => {
+  const { sql, values } = buildMailHeadersQuery(
+    user_id,
+    address,
+    { ...options, from: undefined, size: limit + 1 },
+    LIST_CURSOR_COLUMNS
+  );
+  const result = await pool.query<CursorRow>(sql, values);
+  return toIdPage(result.rows, limit, false);
+};
+
+export const getUnifiedMailHeaderIdPage = async (
+  user_id: string,
+  addresses: string[],
+  options: UnifiedMailHeadersOptions,
+  limit: number
+): Promise<MailIdPage> => {
+  const { sql, values } = buildUnifiedMailHeadersQuery(
+    user_id,
+    addresses,
+    { ...options, from: undefined, size: limit + 1 },
+    LIST_CURSOR_COLUMNS
+  );
+  const result = await pool.query<CursorRow>(sql, values);
+  return toIdPage(result.rows, limit, true);
 };
 
 /**

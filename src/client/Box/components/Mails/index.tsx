@@ -15,7 +15,6 @@ import { MailHeaderData } from "common";
 import {
   ApiResponse,
   AccountsGetResponse,
-  HeadersGetResponse,
   MarkMailPostBody,
   MarkMailPostResponse,
   SearchGetResponse,
@@ -62,6 +61,10 @@ import {
   fetchAccounts
 } from "client/Box/components/Accounts";
 import { getMailsQueryUrl } from "./mailsQuery";
+import { fetchList, fetchNextListPage, hasNextListPage } from "./listPages";
+
+/** Rows kept loaded beyond the ones on screen: three scroll steps of eight. */
+const PREFETCH_ROWS = 24;
 import { emptyFolderState } from "./emptyState";
 import {
   Conversation,
@@ -650,11 +653,12 @@ const RenderedMails = ({
 
   const queryUrl = getMailsQueryUrl(selectedAccount, selectedCategory, unified);
 
+  const isSearch = selectedCategory === Category.Search;
+
   const getMails = () =>
     withPendingReads(async () => {
-      const { status, body, message } = await call.get<
-        HeadersGetResponse | SearchGetResponse
-      >(queryUrl);
+      if (!isSearch) return fetchList(queryUrl);
+      const { status, body, message } = await call.get<SearchGetResponse>(queryUrl);
       if (status === "success") {
         return withoutPendingDeletes(
           body?.map((d) => new MailHeaderData(d)) || []
@@ -682,7 +686,15 @@ const RenderedMails = ({
   }, [query.data, selectedCategory, username, domainName]);
 
   const pageSize = 4 + 8 * page;
-  const hasMore = rows.length > pageSize;
+  const hasNextPage = !isSearch && hasNextListPage(queryUrl);
+  const hasMore = rows.length > pageSize || hasNextPage;
+
+  // Keep a few screens of rows loaded past the ones shown, so scrolling
+  // reaches loaded rows rather than a spinner.
+  useEffect(() => {
+    if (!hasNextPage || rows.length - pageSize > PREFETCH_ROWS) return;
+    fetchNextListPage(queryUrl).catch(() => undefined);
+  }, [hasNextPage, rows.length, pageSize, queryUrl]);
   // A list shorter than the column never scrolls, so the scroll handler alone
   // would never show the rest on a tall screen. Compact rows shrink the list
   // without changing how many rows it shows, so density re-runs the check too.

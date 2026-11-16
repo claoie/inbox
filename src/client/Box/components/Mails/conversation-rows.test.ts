@@ -76,7 +76,7 @@ beforeEach(() => {
       return { status: "success", body: structuredClone([list[0], list[2]]) };
     }
     if (url.startsWith("/api/mails/headers/")) {
-      return { status: "success", body: structuredClone(list) };
+      return { status: "success", body: { next_cursor: null, headers: structuredClone(list) } };
     }
     return { status: "success", body: [] };
   }) as typeof call.get;

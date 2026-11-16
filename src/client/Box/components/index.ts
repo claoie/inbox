@@ -4,6 +4,7 @@ import { Category } from "../../App";
 import { queryClient } from "../../lib/queryClient";
 import { AccountsCache } from "./Accounts";
 import { MailsCache } from "./Mails";
+import { missingFromList } from "./Mails/listPages";
 
 export const Writer = lazy(() => import("./Writer"));
 export const Mails = lazy(() => import("./Mails"));
@@ -34,7 +35,11 @@ export class MailsSynchronizer {
           (acc, e) => acc + e.doc_count,
           0
         );
-        this.difference = countInAccounts - mails.length;
+        this.difference = missingFromList(
+          this.mailsKey,
+          countInAccounts,
+          mails.length
+        );
         return;
       }
 
@@ -60,7 +65,11 @@ export class MailsSynchronizer {
         }
       }, 0);
 
-      this.difference = countInAccounts - countInMails;
+      this.difference = missingFromList(
+        this.mailsKey,
+        countInAccounts,
+        countInMails
+      );
     }
   }
 

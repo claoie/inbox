@@ -11,6 +11,9 @@ import {
   getMailHeadersByIds as pgGetMailHeadersByIds,
   getMailHeadersDelta as pgGetMailHeadersDelta,
   getUnifiedMailHeaderIds as pgGetUnifiedMailHeaderIds,
+  getMailHeaderIdPage as pgGetMailHeaderIdPage,
+  getUnifiedMailHeaderIdPage as pgGetUnifiedMailHeaderIdPage,
+  ListCursor,
   getUnifiedMailHeadersDelta as pgGetUnifiedMailHeadersDelta,
   GetMailHeadersOptions,
   MailHeaderResult,
@@ -106,6 +109,50 @@ export const getMailHeaders = async (
 
   const ids = await pgGetMailHeaderIds(userId, address, pgOptions);
   return pgGetMailHeadersByIds(userId, ids);
+};
+
+export interface MailHeaderPage {
+  batches: AsyncIterable<MailHeaderResult[]>;
+  next: ListCursor | null;
+}
+
+/** Up to `limit` rows of the list, starting after `after` (or at the top). */
+export const getMailHeaderPage = async (
+  user: MaskedUser | SignedUser,
+  address: string,
+  options: GetMailsOptions,
+  limit: number,
+  after?: ListCursor
+): Promise<MailHeaderPage> => {
+  const userId = resolveUserId(user);
+  if (!userId) return { batches: noBatches(), next: null };
+
+  const { ids, next } = await pgGetMailHeaderIdPage(
+    userId,
+    address,
+    { sent: options.sent, saved: options.saved, spam: options.spam, after },
+    limit
+  );
+  return { batches: pgGetMailHeadersByIds(userId, ids), next };
+};
+
+/** The unified list's counterpart of getMailHeaderPage. */
+export const getUnifiedMailHeaderPage = async (
+  user: MaskedUser | SignedUser,
+  addresses: string[],
+  limit: number,
+  after?: ListCursor
+): Promise<MailHeaderPage> => {
+  const userId = resolveUserId(user);
+  if (!userId) return { batches: noBatches(), next: null };
+
+  const { ids, next } = await pgGetUnifiedMailHeaderIdPage(
+    userId,
+    addresses,
+    { after },
+    limit
+  );
+  return { batches: pgGetMailHeadersByIds(userId, ids), next };
 };
 
 export const getMailHeadersDelta = async (

@@ -117,7 +117,7 @@ beforeEach(() => {
     if (url.startsWith("/api/mails/search-accounts/"))
       return { status: "success", body: accountsPayload.received };
     if (url.startsWith("/api/mails/headers/"))
-      return { status: "success", body: [mailOne, mailTwo] };
+      return { status: "success", body: { next_cursor: null, headers: [mailOne, mailTwo] } };
     if (url.startsWith("/api/mails/accounts"))
       return { status: "success", body: accountsPayload };
     if (url.startsWith("/api/mails/thread/"))
@@ -275,11 +275,11 @@ describe("starring updates the Saved cache without a refetch", () => {
       if (url.startsWith("/api/mails/search-accounts/"))
         return { status: "success", body: accountsPayload.received };
       if (url.includes("?saved=1"))
-        return { status: "success", body: [mailTwo] };
+        return { status: "success", body: { next_cursor: null, headers: [mailTwo] } };
       if (url.startsWith("/api/mails/headers/"))
         return {
           status: "success",
-          body: [mailOne, mailTwo, mailThree]
+          body: { next_cursor: null, headers: [mailOne, mailTwo, mailThree] }
         };
       if (url.startsWith("/api/mails/accounts"))
         return { status: "success", body: accountsPayload };

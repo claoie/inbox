@@ -257,15 +257,13 @@ describe("buildDeltaEvictionQuery", () => {
 
 describe("buildUnifiedAddressCondition", () => {
   it("matches a mail addressed to any of the user's receiving addresses", () => {
-    const condition = buildUnifiedAddressCondition();
-    expect(condition).toContain("to_address @> ANY($2::jsonb[])");
-    expect(condition).toContain("cc_address @> ANY($2::jsonb[])");
-    expect(condition).toContain("bcc_address @> ANY($2::jsonb[])");
-    expect(condition).toContain("envelope_to @> ANY($2::jsonb[])");
+    expect(buildUnifiedAddressCondition()).toBe(
+      "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(to_address, '[]'::jsonb) || COALESCE(cc_address, '[]'::jsonb) || COALESCE(bcc_address, '[]'::jsonb) || COALESCE(envelope_to, '[]'::jsonb)) AS recipient WHERE recipient->>'address' = ANY($2::text[]))"
+    );
   });
 
   it("numbers the placeholder from the given index", () => {
-    expect(buildUnifiedAddressCondition(4)).toContain("@> ANY($4::jsonb[])");
+    expect(buildUnifiedAddressCondition(4)).toContain("= ANY($4::text[])");
   });
 });
 
@@ -309,16 +307,13 @@ describe("buildUnifiedMailHeadersQuery", () => {
 
   it("binds user and the address set in the order the placeholders name", () => {
     const { values } = buildUnifiedMailHeadersQuery(USER, ADDRESSES, {});
-    expect(values).toEqual([
-      USER,
-      [JSON.stringify([{ address: "a@example.com" }]), JSON.stringify([{ address: "b@example.com" }])],
-    ]);
+    expect(values).toEqual([USER, ADDRESSES]);
   });
 
   it("binds an empty address set as an empty array, matching nothing", () => {
     const { sql, values } = buildUnifiedMailHeadersQuery(USER, [], {});
     expect(values).toEqual([USER, []]);
-    expect(sql).toContain("@> ANY($2::jsonb[])");
+    expect(sql).toContain("= ANY($2::text[])");
   });
 
   it("filters on `updated >` only when a cursor is supplied", () => {
@@ -336,7 +331,7 @@ describe("buildUnifiedMailHeadersQuery", () => {
     });
     expect(values).toEqual([
       USER,
-      [JSON.stringify([{ address: "a@example.com" }]), JSON.stringify([{ address: "b@example.com" }])],
+      ADDRESSES,
       "2026-01-01T00:00:00.000Z",
       10,
       5,
@@ -369,11 +364,7 @@ describe("buildUnifiedDeltaEvictionQuery", () => {
 
   it("binds user, address set and cursor in the order the placeholders name", () => {
     const { values } = buildUnifiedDeltaEvictionQuery(USER, ADDRESSES, SINCE);
-    expect(values).toEqual([
-      USER,
-      [JSON.stringify([{ address: "a@example.com" }]), JSON.stringify([{ address: "b@example.com" }])],
-      SINCE,
-    ]);
+    expect(values).toEqual([USER, ADDRESSES, SINCE]);
   });
 });
 
@@ -580,5 +571,52 @@ describe("buildUnreadNotificationsQuery", () => {
     const { sql } = buildUnreadNotificationsQuery([USER]);
     expect(sql).toContain("COUNT(*) FILTER (WHERE read = FALSE)");
     expect(sql).toContain("GROUP BY user_id");
+  });
+});
+
+describe("list keyset paging", () => {
+  const AFTER = {
+    date: "2026-11-15 02:55:04.123456+00",
+    id: "22222222-2222-2222-2222-222222222222",
+    read: true,
+  };
+
+  it("orders the per-account list by date, then id, so the cursor names one position", () => {
+    expect(headersSql()).toContain("ORDER BY date DESC, mail_id DESC");
+  });
+
+  it("starts a per-account page strictly after the cursor's date and id", () => {
+    const { sql, values } = buildMailHeadersQuery(
+      USER,
+      ADDRESS,
+      headerOptions({ after: AFTER, size: 101 })
+    );
+    expect(sql).toContain("AND (date, mail_id) < ($3::timestamptz, $4::uuid) ORDER BY");
+    expect(sql).toContain("LIMIT $5");
+    expect(values.slice(2)).toEqual([AFTER.date, AFTER.id, 101]);
+  });
+
+  it("orders the unified list by read, date, then id", () => {
+    const { sql } = buildUnifiedMailHeadersQuery(USER, [ADDRESS], {});
+    expect(sql).toContain("ORDER BY read ASC, date DESC, mail_id DESC");
+  });
+
+  it("starts a unified page after the cursor in (read, date, id) order", () => {
+    const { sql, values } = buildUnifiedMailHeadersQuery(USER, [ADDRESS], {
+      after: AFTER,
+      size: 101,
+    });
+    expect(sql).toContain(
+      "AND (read > $3::boolean OR (read = $3::boolean AND (date, mail_id) < ($4::timestamptz, $5::uuid))) ORDER BY"
+    );
+    expect(sql).toContain("LIMIT $6");
+    expect(values.slice(2)).toEqual([true, AFTER.date, AFTER.id, 101]);
+  });
+
+  it("starts an unread-section unified cursor at read = false", () => {
+    const { values } = buildUnifiedMailHeadersQuery(USER, [ADDRESS], {
+      after: { date: AFTER.date, id: AFTER.id },
+    });
+    expect(values[2]).toBe(false);
   });
 });

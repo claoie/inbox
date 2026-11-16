@@ -63,6 +63,29 @@ describe("jsonList", () => {
     await expectSameAsJson(rows, toItem);
   });
 
+  it("with a page, sends the bytes and ETag of json() for the page object, list last", async () => {
+    const rows = rowsOf(1200);
+    const page = { listKey: "headers", fields: { next_cursor: "abc", total: 3 } };
+    const expected = json({
+      status: "success",
+      body: { next_cursor: "abc", total: 3, headers: rows.map(toItem) },
+    });
+    const actual = await jsonList(inBatches(rows, 500), toItem, page);
+    expect(await actual.text()).toBe(await expected.text());
+    expect(actual.headers.get("etag")).toBe(expected.headers.get("etag"));
+  });
+
+  it("with a page and no rows, sends an empty list under the key", async () => {
+    const actual = await jsonList(inBatches([], 500), toItem, {
+      listKey: "headers",
+      fields: { next_cursor: null },
+    });
+    expect(await actual.json()).toEqual({
+      status: "success",
+      body: { next_cursor: null, headers: [] },
+    });
+  });
+
   it("maps every row exactly once, in order", async () => {
     const seen: number[] = [];
     const rows = rowsOf(500);
