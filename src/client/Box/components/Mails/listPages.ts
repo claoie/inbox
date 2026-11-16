@@ -49,13 +49,6 @@ const requestPage = async (url: string, limit: number, cursor?: string) => {
 /** True while the server has rows after the loaded ones. */
 export const hasNextListPage = (url: string) => !!states.get(url)?.next;
 
-/** True once the list has been fetched and every page of it is loaded. */
-export const isListComplete = (url: string) => states.get(url)?.next === null;
-
-/**
- * The query function for a paged list: one page on the first request in this
- * session, otherwise as many rows as are already loaded.
- */
 /**
  * The query function for a paged list: one page on the first request in this
  * session, otherwise as many rows as are already loaded. `countInAccounts`

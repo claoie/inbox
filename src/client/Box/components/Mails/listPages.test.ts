@@ -9,7 +9,6 @@ import {
   fetchList,
   fetchNextListPage,
   hasNextListPage,
-  isListComplete,
   listCountInAccounts,
   missingFromList,
   restoreListPaging,
@@ -53,7 +52,6 @@ describe("paged mail lists", () => {
     expect(mails.map((m) => m.id)).toEqual(["a", "b"]);
     expect(requests).toEqual([`${url}?limit=${LIST_PAGE_SIZE}`]);
     expect(hasNextListPage(url)).toBe(true);
-    expect(isListComplete(url)).toBe(false);
   });
 
   it("appends the next page from the cursor, skipping ids already loaded", async () => {
@@ -64,7 +62,6 @@ describe("paged mail lists", () => {
     await fetchNextListPage(url);
     expect(queryClient.getQueryData<MailHeaderData[]>(url)?.map((m) => m.id)).toEqual(["a", "b", "c"]);
     expect(hasNextListPage(url)).toBe(false);
-    expect(isListComplete(url)).toBe(true);
   });
 
   it("refetches as many rows as are loaded, so a refetch does not shrink the list", async () => {

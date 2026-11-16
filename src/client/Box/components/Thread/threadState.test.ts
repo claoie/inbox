@@ -1,6 +1,8 @@
 import { describe, it, expect } from "bun:test";
 import { QueryClient } from "react-query";
 import { MailHeaderData } from "common";
+import { call } from "client";
+import { fetchList, fetchNextListPage, snapshotListPaging } from "../Mails/listPages";
 import {
   FOLD_THRESHOLD,
   initialExpanded,
@@ -80,5 +82,28 @@ describe("cache helpers", () => {
     expect(qc.getQueryData<MailHeaderData[]>("/api/mails/thread/a")).toEqual([]);
     restoreCaches(qc, snapshot);
     expect(qc.getQueryData<MailHeaderData[]>("/api/mails/headers/me@x.com")?.map((m) => m.id)).toEqual(["a", "b"]);
+  });
+
+  it("puts each list's paging position back with its rows", async () => {
+    const url = "/api/mails/headers/paging@x.com";
+    const originalGet = call.get;
+    call.get = (async (path: string) => ({
+      status: "success",
+      body: path.includes("cursor=c1")
+        ? { next_cursor: "c2", headers: [mail("b")] }
+        : { next_cursor: "c1", headers: [mail("a")] }
+    })) as typeof call.get;
+    try {
+      const qc = new QueryClient();
+      qc.setQueryData(url, await fetchList(url));
+      const before = snapshotListPaging(url);
+      const snapshot = snapshotCaches(qc);
+      await fetchNextListPage(url);
+      expect(snapshotListPaging(url)).not.toEqual(before);
+      restoreCaches(qc, snapshot);
+      expect(snapshotListPaging(url)).toEqual(before);
+    } finally {
+      call.get = originalGet;
+    }
   });
 });

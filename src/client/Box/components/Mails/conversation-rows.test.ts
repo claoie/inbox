@@ -139,7 +139,7 @@ const mountMails = async (category = Category.AllMails, selected = "maple@exampl
             createElement(
               FeedbackProvider,
               null,
-              createElement(MemoryRouter, null, createElement(Mails, { page: 0 }))
+              createElement(MemoryRouter, null, createElement(Mails, { page: 0, loadMoreIfShort: () => {} }))
             )
           )
         )
@@ -238,6 +238,76 @@ describe("folder rows are conversations", () => {
       expect(mount.rows()[0].querySelector(".thread-count-badge")?.textContent).toBe("2");
       flushDeletes();
       expect(deleted).toEqual([]);
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("loads again, after Undo, a page that arrived while the delete was pending", async () => {
+    const { flushDeletes } = await import("./pendingDeletes");
+    const older = message("older", 1, { subject: "Older", messageId: "<older@x>" });
+    let releasePage: () => void = () => {};
+    const pageGate = new Promise<void>((r) => (releasePage = r));
+    let pageRequests = 0;
+    call.get = (async (url: string) => {
+      if (url.includes("cursor=c1")) {
+        if (++pageRequests === 1) await pageGate;
+        return { status: "success", body: { next_cursor: null, headers: [structuredClone(older)] } };
+      }
+      if (url.startsWith("/api/mails/headers/")) {
+        return { status: "success", body: { next_cursor: "c1", headers: structuredClone(list) } };
+      }
+      return { status: "success", body: [] };
+    }) as typeof call.get;
+
+    const mount = await mountMails();
+    try {
+      expect(mount.rows().length).toBe(2);
+      await openKebabAction(mount, "Delete");
+      await mount.act(async () => {
+        releasePage();
+        await new Promise((r) => setTimeout(r, 10));
+      });
+      expect(mount.rows().length).toBe(2);
+      const undo = await mount.waitFor(() => document.querySelector(".feedback-toast-action"));
+      await mount.act(async () => (undo as HTMLElement).click());
+      await mount.waitFor(() => (mount.rows().length === 3 ? true : null));
+      expect(mount.rows().map((r) => r.querySelector(".mailcard-subject")?.textContent)).toEqual([
+        "Re: Budget",
+        "Lunch",
+        "Older"
+      ]);
+      expect(pageRequests).toBe(2);
+      flushDeletes();
+      expect(deleted).toEqual([]);
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("measures an incomplete list against the account count it was loaded with", async () => {
+    const { queryClient } = await import("client");
+    const { accountsQueryUrl } = await import("client/Box/components/Accounts");
+    const { missingFromList } = await import("./listPages");
+    call.get = (async (url: string) => {
+      if (url.startsWith("/api/mails/headers/")) {
+        queryClient.setQueryData(accountsQueryUrl, {
+          received: [{ key: "maple@example.com", doc_count: 50, unread_doc_count: 1, saved_doc_count: 0 }],
+          sent: [],
+          spam: []
+        });
+        const cursor = new URL(url, "http://x").searchParams.get("cursor");
+        return {
+          status: "success",
+          body: { next_cursor: `${cursor ?? "c"}1`, headers: cursor ? [] : structuredClone(list) }
+        };
+      }
+      return { status: "success", body: [] };
+    }) as typeof call.get;
+
+    const mount = await mountMails();
+    try {
+      expect(missingFromList("/api/mails/headers/maple@example.com", 51, 3)).toBe(1);
     } finally {
       await mount.teardown();
     }
