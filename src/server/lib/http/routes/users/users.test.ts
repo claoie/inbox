@@ -789,23 +789,42 @@ describe("postSetInfoRoute + setInfoLimiter integration", () => {
     expect(rateLimit.setInfoLimiter.check(req)?.status).toBe(429);
   });
 
-  it("does not count an unexpected fault against the IP quota", async () => {
-    const { postSetInfoRoute } = await import("./post-set-info");
+  it.each([
+    [
+      "the user lookup",
+      "198.51.100.43",
+      () => mockGetUser.mockRejectedValueOnce(new Error("User has no password set")),
+    ],
+    [
+      "setUserInfo",
+      "198.51.100.44",
+      () => {
+        mockGetUser.mockResolvedValueOnce(null);
+        mockSetUserInfo.mockRejectedValueOnce(new Error("User has no password set"));
+      },
+    ],
+  ] as const)("counts a fault thrown by %s against the IP quota", async (_label, ip, arrangeFault) => {
+    const { default: handleUsers } = await import("./index");
     const rateLimit = await import("../../rate-limit");
-    const ip = "198.51.100.43";
     rateLimit.setInfoLimiter.reset(ip);
-    const req = makeReq({
-      body: { email: "a@b.com", username: "alice", password: "pass", token: "t" },
-      ip,
-    });
+    const request = () =>
+      makeReq({
+        body: { email: "a@b.com", username: "alice", password: "pass", token: "t" },
+        ip,
+      });
 
     for (let i = 0; i < 5; i++) {
-      mockGetUser.mockResolvedValueOnce(null);
-      mockSetUserInfo.mockRejectedValueOnce(new Error("connection terminated"));
-      await expect(postSetInfoRoute.callback(req)).rejects.toThrow("connection terminated");
+      arrangeFault();
+      const response = await handleUsers(request(), "/set-info");
+      expect(response?.status).toBe(500);
     }
 
-    expect(rateLimit.setInfoLimiter.check(req)).toBeUndefined();
+    mockGetUser.mockClear();
+    mockSetUserInfo.mockClear();
+    const refused = await handleUsers(request(), "/set-info");
+    expect(refused?.status).toBe(429);
+    expect(mockGetUser).not.toHaveBeenCalled();
+    expect(mockSetUserInfo).not.toHaveBeenCalled();
   });
 });
 
