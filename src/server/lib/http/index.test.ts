@@ -311,3 +311,21 @@ describe("createHttpApp boot ordering", () => {
     }
   });
 });
+
+describe("createHttpApp JSON body ceiling", () => {
+  afterEach(restoreEnv);
+
+  const oneMebibytePlusOne = `{"a":"${"x".repeat(1024 * 1024 + 1 - 8)}"}`;
+
+  it("answers 413 for an oversized JSON body on any path, before routing or auth", async () => {
+    useMode("development");
+    for (const path of ["/", "/api/nope", "/api/users/login", "/api/mails/mark"]) {
+      const res = await call(new MemoryStore(), path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: oneMebibytePlusOne,
+      });
+      expect({ path, status: res.status }).toEqual({ path, status: 413 });
+    }
+  });
+});

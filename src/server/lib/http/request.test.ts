@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 
 import {
   isSecureRequest,
+  JSON_BODY_LIMIT,
   parseQuery,
   readJsonBody,
   readTextBody,
@@ -157,8 +158,26 @@ describe("readJsonBody", () => {
     await expect(post('"text"')).rejects.toMatchObject({ status: 400 });
   });
 
-  it("refuses a body over 10 MiB with 413", async () => {
-    await expect(post(`{"a":"${"x".repeat(10 * 1024 * 1024)}"}`)).rejects.toMatchObject({ status: 413 });
+  it("accepts a body of exactly 1 MiB and refuses one byte more with 413", async () => {
+    expect(JSON_BODY_LIMIT).toBe(1024 * 1024);
+    const ofSize = (bytes: number) => `{"a":"${"x".repeat(bytes - 8)}"}`;
+    expect(ofSize(JSON_BODY_LIMIT)).toHaveLength(JSON_BODY_LIMIT);
+    expect(await post(ofSize(JSON_BODY_LIMIT))).toEqual({ a: "x".repeat(JSON_BODY_LIMIT - 8) });
+    await expect(post(ofSize(JSON_BODY_LIMIT + 1))).rejects.toMatchObject({ status: 413 });
+  });
+
+  it("refuses an oversized body with no declared length while streaming", async () => {
+    const chunk = new TextEncoder().encode("x".repeat(64 * 1024));
+    let sent = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent > JSON_BODY_LIMIT * 4) return controller.close();
+        sent += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+    });
+    await expect(post(stream)).rejects.toMatchObject({ status: 413 });
+    expect(sent).toBeLessThan(JSON_BODY_LIMIT * 2);
   });
 
   it("refuses a non-UTF charset and an unknown encoding with 415", async () => {

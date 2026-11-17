@@ -135,7 +135,13 @@ export const parseQuery = (search: URLSearchParams): Record<string, string | str
   return query;
 };
 
-const JSON_BODY_LIMIT = 10 * 1024 * 1024;
+/**
+ * Largest JSON body accepted, in bytes. Every JSON caller sends a few KB;
+ * mail and attachments travel as multipart. The body is read before routing
+ * and auth, so this ceiling is what any unauthenticated peer can make the
+ * process hold per request.
+ */
+export const JSON_BODY_LIMIT = 1024 * 1024;
 
 const mediaTypeOf = (contentType: string | null) =>
   (contentType ?? "").split(";")[0]!.trim().toLowerCase();
@@ -199,7 +205,7 @@ export const readTextBody = async (request: Request, limit: number): Promise<str
  * The body of an `application/json` request, parsed; `{}` for any other
  * request. Only an object or array is accepted at the top level.
  *
- * Throws {@link HttpError} with 400 for malformed JSON, 413 over 10 MiB and
+ * Throws {@link HttpError} with 400 for malformed JSON, 413 over {@link JSON_BODY_LIMIT} and
  * 415 for a non-UTF charset or an unknown content encoding.
  */
 export const readJsonBody = async (request: Request): Promise<unknown> => {
