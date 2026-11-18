@@ -152,6 +152,39 @@ describe("parseUploads", () => {
     expect(rejection?.status).toBe(413);
   });
 
+  it("keeps a text field well past 1 MiB whole, through its last byte", async () => {
+    const html = `<p>${"한".repeat(1024 * 1024)}</p>END`;
+    const { req, rejection, tempFiles } = await upload(chunked(multipart([{ field: "html", value: html }]), 64 * 1024));
+
+    expect(rejection).toBeUndefined();
+    expect((req.body as Record<string, string>).html).toBe(html);
+    removeTempFiles(tempFiles);
+  });
+
+  it("accepts a text field of exactly 10 MiB", async () => {
+    const value = "a".repeat(10 * 1024 * 1024);
+    const { req, rejection } = await upload(multipart([{ field: "html", value }]));
+
+    expect(rejection).toBeUndefined();
+    expect((req.body as Record<string, string>).html).toHaveLength(value.length);
+  });
+
+  it("refuses a text field over 10 MiB instead of cutting it, and reclaims its siblings", async () => {
+    const before = ownTempFiles();
+    const { req, rejection, tempFiles } = await upload(
+      multipart([
+        { filename: "sibling.txt", payload: "sibling" },
+        { field: "html", value: "a".repeat(10 * 1024 * 1024 + 1) },
+      ])
+    );
+
+    expect(rejection?.status).toBe(413);
+    expect(await rejection!.json()).toEqual({ status: "failed", message: "Each form field must be at most 10MB" });
+    expect(req.body).toEqual({});
+    expect(tempFiles).toEqual([]);
+    expect(await leftoverSince(before)).toEqual([]);
+  });
+
   it("keeps the client's file name as UTF-8 without any directory part", async () => {
     const { req, tempFiles } = await upload(
       multipart([
