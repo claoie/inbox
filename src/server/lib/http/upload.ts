@@ -14,7 +14,8 @@ export const MAX_ATTACHMENTS_PER_MAIL = 20;
 // attachments" instead of dropping the surplus without telling the sender.
 const MAX_PARSED_FILES = MAX_ATTACHMENTS_PER_MAIL + 1;
 
-const MAX_FIELD_BYTES = 1024 * 1024;
+/** Matches the send validator's ceiling on the mail body, the largest field a form carries. */
+const MAX_FIELD_BYTES = 10 * 1024 * 1024;
 
 /**
  * The largest request body the server reads: every file the parser keeps at
@@ -177,7 +178,11 @@ class StreamCursor {
   }
 }
 
-class FileTooLargeError extends Error {}
+/** A part broke a size limit; its message is what the sender is told. */
+class PartTooLargeError extends Error {}
+
+const FILE_TOO_LARGE = `Each attachment must be smaller than ${MAX_FILE_SIZE / 1024 / 1024}MB`;
+const FIELD_TOO_LARGE = `Each form field must be at most ${MAX_FIELD_BYTES / 1024 / 1024}MB`;
 
 interface ParsedForm {
   fields: Record<string, string | string[]>;
@@ -197,7 +202,7 @@ const writeFilePart = async (
   try {
     await cursor.pipeUntil(delimiter, async (chunk) => {
       size += chunk.byteLength;
-      if (size >= MAX_FILE_SIZE) throw new FileTooLargeError();
+      if (size >= MAX_FILE_SIZE) throw new PartTooLargeError(FILE_TOO_LARGE);
       await handle.write(chunk);
     });
   } finally {
@@ -239,11 +244,9 @@ const parseForm = async (body: ReadableStream<Uint8Array>, boundary: string): Pr
         const pieces: Uint8Array[] = [];
         let length = 0;
         await cursor.pipeUntil(delimiter, (chunk) => {
-          const room = MAX_FIELD_BYTES - length;
-          if (room <= 0) return;
-          const kept = chunk.slice(0, room);
-          length += kept.byteLength;
-          pieces.push(kept);
+          length += chunk.byteLength;
+          if (length > MAX_FIELD_BYTES) throw new PartTooLargeError(FIELD_TOO_LARGE);
+          pieces.push(chunk.slice());
         });
         addField(form.fields, name, decoder.decode(concat(pieces)));
       } else if (fileCount >= MAX_PARSED_FILES) {
@@ -301,7 +304,7 @@ export interface UploadOutcome {
  * try { return rejection ?? (await route.handle(req)); } finally { removeTempFiles(tempFiles); }
  * ```
  *
- * A file over the size limit is answered 413; a malformed body throws an
+ * A file or field over its size limit is answered 413; a malformed body throws an
  * {@link HttpError} with 400.
  */
 export const parseUploads = async (req: HttpRequest, request: Request): Promise<UploadOutcome> => {
@@ -320,16 +323,10 @@ export const parseUploads = async (req: HttpRequest, request: Request): Promise<
     if (Object.keys(form.files).length) req.files = form.files;
     return { tempFiles: form.tempFiles };
   } catch (error) {
-    if (!(error instanceof FileTooLargeError)) throw error;
+    if (!(error instanceof PartTooLargeError)) throw error;
     return {
       tempFiles: [],
-      rejection: json(
-        {
-          status: "failed",
-          message: `Each attachment must be smaller than ${MAX_FILE_SIZE / 1024 / 1024}MB`,
-        },
-        413
-      ),
+      rejection: json({ status: "failed", message: error.message }, 413),
     };
   }
 };
