@@ -44,6 +44,10 @@ const logRequest = (req: HttpRequest, url: string) => {
   });
 };
 
+/** Whether an `/api` request, `path` relative to `/api`, is the client's liveness ping. */
+export const isPingRequest = (method: string, path: string) =>
+  (method === "GET" || method === "HEAD") && /^\/ping\/?$/i.test(path);
+
 const route = async (req: HttpRequest, path: string): Promise<Response> => {
   const url = req.url.slice("/api".length);
   logRequest(req, url.startsWith("/") ? url : `/${url}`);
@@ -51,7 +55,7 @@ const route = async (req: HttpRequest, path: string): Promise<Response> => {
   // Cheap liveness probe for the client's offline heartbeat: just "is the HTTP
   // server reachable", with none of /health's DB query + SMTP/IMAP socket probes
   // (which would multiply into N port-scans per 30s at N users with open tabs).
-  if ((req.method === "GET" || req.method === "HEAD") && /^\/ping\/?$/i.test(path)) {
+  if (isPingRequest(req.method, path)) {
     return json({ status: "success" });
   }
 

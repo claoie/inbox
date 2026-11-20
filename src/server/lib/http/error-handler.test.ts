@@ -142,7 +142,7 @@ const STORED_SESSION = {
   user: { id: "u1", username: "alice", email: "alice@example.com" },
   cookie: {
     originalMaxAge: 604800000,
-    _expires: new Date(Date.now() + 604800000),
+    _expires: new Date(Date.now() + 604800000 - 86400000),
     httpOnly: true,
     path: "/",
     secure: false,
@@ -158,6 +158,9 @@ class FaultingStore implements SessionStore {
     throw new Error("connection terminated unexpectedly");
   };
   set = async () => {
+    if (this.failWrites) throw new Error("could not serialize session write");
+  };
+  touch = async () => {
     if (this.failWrites) throw new Error("could not serialize session write");
   };
   destroy = async () => {};
@@ -227,12 +230,11 @@ describe("errorHandler in the assembled app", () => {
     expect(await res.json()).toEqual({ status: "error", message: "Internal server error" });
   });
 
-  it("answers a store fault outside /api with plain text", async () => {
-    const res = await call("/", { headers: faultingCookie });
+  it("serves a path outside /api without reading the session store", async () => {
+    const res = await call("/.well-known/autoconfig/mail/config-v1.1.xml", { headers: faultingCookie });
 
-    expect(res.status).toBe(500);
-    expect(res.headers.get("content-type")).toContain("text/plain");
-    expect(await res.text()).toBe("Internal server error");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/xml");
   });
 
   it("raises the alarm for the store fault", async () => {
@@ -255,8 +257,9 @@ describe("errorHandler in the assembled app", () => {
     const sink = await startAlarmSink();
     process.env.DISCORD_ALARM_WEBHOOK = sink.url;
     try {
-      const res = await call("/api/ping", { headers: faultingCookie }, new FaultingStore(true));
-      expect([res.status, await res.json()]).toEqual([200, { status: "success" }]);
+      const res = await call("/api/users/login", { headers: faultingCookie }, new FaultingStore(true));
+      const body = (await res.json()) as { status: string; body: { user?: { username: string } } };
+      expect([res.status, body.status, body.body.user?.username]).toEqual([200, "success", "alice"]);
 
       const payload = await sink.firstPayload();
       expect(alarmTitle(payload)).toContain("Unhandled Middleware Error");

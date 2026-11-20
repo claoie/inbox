@@ -5,11 +5,16 @@ export const SESSION_COOKIE_NAME = "connect.sid";
 
 const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
 
+/** How long a live session's expiry may lag a full window before a request slides it. */
+export const SESSION_RENEW_INTERVAL_MS = 1000 * 60 * 60;
+
 /** Where sessions persist between requests. */
 export interface SessionStore {
   /** Resolves null for an unknown or expired id; rejects on a store fault. */
   get(sessionId: string): Promise<RuntimeSessionType | null>;
   set(sessionId: string, session: RuntimeSessionType): Promise<void>;
+  /** Moves a stored session's expiry and nothing else; an unknown id is left absent. */
+  touch(sessionId: string, expires: Date): Promise<void>;
   destroy(sessionId: string): Promise<void>;
 }
 
@@ -70,10 +75,11 @@ export interface SessionOptions {
  * The session a request carries, persisted in a {@link SessionStore} and keyed
  * by a signed `connect.sid` cookie.
  *
- * Every request that arrives with a live session saves it again and gets the
- * cookie back with a renewed expiry, so a session lasts seven days past its
- * last use. A request without one gets neither a row nor a cookie until a route
- * attaches a user.
+ * A session lasts seven days past its last use. A request that arrives with
+ * a live session slides that expiry once it lags a full window by
+ * {@link SESSION_RENEW_INTERVAL_MS}, writing only the expiry and returning the
+ * cookie; otherwise an unchanged session writes nothing. A request without one
+ * gets neither a row nor a cookie until a route attaches a user.
  */
 export class HttpSession {
   /** The authenticated identity; undefined while the session is anonymous. */
@@ -165,6 +171,18 @@ export class HttpSession {
     );
   }
 
+  private isDueForRenewal() {
+    const expires = this.cookie._expires?.getTime();
+    if (expires === undefined) return true;
+    const maxAge = this.cookie.originalMaxAge ?? SESSION_MAX_AGE_MS;
+    return expires < Date.now() + maxAge - SESSION_RENEW_INTERVAL_MS;
+  }
+
+  private slideExpiry() {
+    this.cookie._expires = new Date(Date.now() + (this.cookie.originalMaxAge ?? SESSION_MAX_AGE_MS));
+    return this.cookie._expires;
+  }
+
   /** Deletes the stored session and continues under a new, empty one. */
   async regenerate(): Promise<void> {
     const previous = this.id;
@@ -198,12 +216,14 @@ export class HttpSession {
   ): Promise<string | undefined> {
     if (this.destroyed) return undefined;
 
-    const arrivedWithThisId = this.arrivedWithId === this.id;
-    const shouldPersist = arrivedWithThisId || this.isModified();
-    if (!shouldPersist) return undefined;
-
-    this.cookie._expires = new Date(Date.now() + (this.cookie.originalMaxAge ?? SESSION_MAX_AGE_MS));
-    await this.save().catch(onSaveError);
+    if (this.isModified()) {
+      this.slideExpiry();
+      await this.save().catch(onSaveError);
+    } else if (this.arrivedWithId === this.id && this.isDueForRenewal()) {
+      await this.store.touch(this.id, this.slideExpiry()).catch(onSaveError);
+    } else {
+      return undefined;
+    }
 
     if (this.cookie.secure && !secureRequest) return undefined;
     return this.serializeCookie();

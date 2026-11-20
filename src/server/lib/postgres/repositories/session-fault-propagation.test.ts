@@ -23,6 +23,8 @@ type Mode = "ok" | "empty" | "throw";
 let writeMode: Mode = "ok";
 let readMode: Mode = "ok";
 let purgeMode: Mode = "ok";
+let touchMode: Mode = "ok";
+const updateCalls: { sql: string; values: unknown[] }[] = [];
 // The user row's password_version the fence reads; "missing" simulates a
 // deleted account row, "throw" a lookup fault.
 let userVersionMode: number | "missing" | "throw" = 1;
@@ -87,6 +89,12 @@ const mockQuery = mock(async (sql: string, values: unknown[] = []) => {
     const rows = writeMode === "empty" ? [] : [liveSessionRow()];
     return { rows, rowCount: rows.length };
   }
+  if (sql.startsWith("UPDATE sessions")) {
+    updateCalls.push({ sql, values });
+    if (touchMode === "throw") throw new Error("could not slide session expiry");
+    const rows = touchMode === "empty" ? [] : [{ session_id: SESSION_ID }];
+    return { rows, rowCount: rows.length };
+  }
   if (sql.startsWith("SELECT") && sql.includes("FROM sessions")) {
     if (readMode === "throw") throw new Error("connection terminated unexpectedly");
     const rows = readMode === "empty" ? [] : [liveSessionRow()];
@@ -120,6 +128,8 @@ beforeEach(() => {
   writeMode = "ok";
   readMode = "ok";
   purgeMode = "ok";
+  touchMode = "ok";
+  updateCalls.length = 0;
   userVersionMode = 1;
   stampedVersion = 1;
   readOnlyRow = false;
@@ -173,6 +183,33 @@ describe("PostgresSessionStore.set", () => {
     const err = await setResult(SESSION_ID);
 
     expect(err).toBeNull();
+  });
+});
+
+describe("PostgresSessionStore.touch", () => {
+  it("rejects when the expiry write raises", async () => {
+    touchMode = "throw";
+
+    const err = await store.touch(SESSION_ID, new Date()).then(
+      () => null,
+      (error: unknown) => error
+    );
+
+    expect((err as Error).message).toContain("could not slide session expiry");
+  });
+
+  it("updates only the expiry of the named row and never inserts one", async () => {
+    touchMode = "empty";
+    const expires = new Date(Date.now() + WEEK_MS);
+
+    await store.touch(SESSION_ID, expires);
+
+    expect(issuedSql.filter((sql) => sql.startsWith("INSERT"))).toEqual([]);
+    expect(updateCalls).toHaveLength(1);
+    const { sql, values } = updateCalls[0]!;
+    const assignments = sql.slice(sql.indexOf(" SET ") + 5, sql.indexOf(" WHERE "));
+    expect(assignments.split(", ").map((a) => a.split(" = ")[0]).sort()).toEqual(["cookie_expires", "updated"]);
+    expect(values).toEqual([expires.toISOString(), SESSION_ID]);
   });
 });
 
