@@ -3,6 +3,7 @@ import type { RuntimeSessionType, SignedUser } from "common";
 
 import {
   HttpSession,
+  SESSION_RENEW_INTERVAL_MS,
   readCookie,
   signSessionCookie,
   unsignSessionCookie,
@@ -26,10 +27,16 @@ const ALICE = { id: "u1", username: "alice", email: "alice@example.com" } as Sig
 class MemoryStore implements SessionStore {
   readonly rows = new Map<string, RuntimeSessionType>();
   readonly writes: string[] = [];
+  readonly touches: string[] = [];
   get = async (id: string) => this.rows.get(id) ?? null;
   set = async (id: string, session: RuntimeSessionType) => {
     this.writes.push(id);
     this.rows.set(id, session);
+  };
+  touch = async (id: string, expires: Date) => {
+    this.touches.push(id);
+    const row = this.rows.get(id);
+    if (row) row.cookie._expires = expires;
   };
   destroy = async (id: string) => {
     this.rows.delete(id);
@@ -39,12 +46,12 @@ class MemoryStore implements SessionStore {
 const cookieFor = (id: string, secret = OPTIONS.secret) =>
   `connect.sid=${encodeURIComponent(signSessionCookie(id, secret))}`;
 
-const storedSession = (): RuntimeSessionType =>
+const storedSession = (expiresIn = 1000): RuntimeSessionType =>
   ({
     user: ALICE,
     cookie: {
       originalMaxAge: WEEK_MS,
-      _expires: new Date(Date.now() + 1000),
+      _expires: new Date(Date.now() + expiresIn),
       httpOnly: true,
       path: "/",
       secure: false,
@@ -100,7 +107,7 @@ describe("HttpSession", () => {
     expect(store.rows.get(session.sessionId)!.user).toEqual(ALICE);
   });
 
-  it("renews a live session's row and cookie on every request", async () => {
+  it("slides a lagging session's expiry alone and re-issues its cookie", async () => {
     const store = new MemoryStore();
     store.rows.set("live", storedSession());
     const session = await HttpSession.load(cookieFor("live"), store, OPTIONS);
@@ -109,8 +116,54 @@ describe("HttpSession", () => {
 
     expect(session.user).toEqual(ALICE);
     expect(setCookie).toStartWith(`${cookieFor("live")}; Path=/; Expires=`);
+    expect([store.touches, store.writes]).toEqual([["live"], []]);
     const expires = store.rows.get("live")!.cookie._expires!.getTime();
     expect(Math.abs(expires - (Date.now() + WEEK_MS))).toBeLessThan(5_000);
+  });
+
+  it("writes nothing and sets no cookie for a session renewed within the interval", async () => {
+    const store = new MemoryStore();
+    const recentlyRenewed = WEEK_MS - SESSION_RENEW_INTERVAL_MS + 60_000;
+    store.rows.set("live", storedSession(recentlyRenewed));
+    const session = await HttpSession.load(cookieFor("live"), store, OPTIONS);
+
+    expect(await session.commit(false, noFault)).toBeUndefined();
+    expect(session.user).toEqual(ALICE);
+    expect([store.touches, store.writes]).toEqual([[], []]);
+  });
+
+  it("slides a session whose expiry lags just past the interval", async () => {
+    const store = new MemoryStore();
+    const lagging = WEEK_MS - SESSION_RENEW_INTERVAL_MS - 60_000;
+    store.rows.set("live", storedSession(lagging));
+    const session = await HttpSession.load(cookieFor("live"), store, OPTIONS);
+
+    expect(await session.commit(false, noFault)).toStartWith(cookieFor("live"));
+    expect(store.touches).toEqual(["live"]);
+  });
+
+  it("rewrites the whole row when the identity changes on a recently renewed session", async () => {
+    const store = new MemoryStore();
+    store.rows.set("live", storedSession(WEEK_MS));
+    const session = await HttpSession.load(cookieFor("live"), store, OPTIONS);
+    session.user = { ...ALICE, username: "alice2" } as SignedUser;
+
+    expect(await session.commit(false, noFault)).toStartWith(cookieFor("live"));
+    expect([store.touches, store.writes]).toEqual([[], ["live"]]);
+    expect(store.rows.get("live")!.user.username).toBe("alice2");
+  });
+
+  it("reports a failed expiry slide and still returns the cookie", async () => {
+    const store = new MemoryStore();
+    store.rows.set("live", storedSession());
+    store.touch = async () => {
+      throw new Error("could not slide session expiry");
+    };
+    const session = await HttpSession.load(cookieFor("live"), store, OPTIONS);
+    const faults: unknown[] = [];
+
+    expect(await session.commit(false, (error) => faults.push(error))).toStartWith(cookieFor("live"));
+    expect((faults[0] as Error).message).toBe("could not slide session expiry");
   });
 
   it("starts anonymous under a new id when the cookie names no stored session", async () => {

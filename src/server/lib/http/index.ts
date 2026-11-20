@@ -3,7 +3,7 @@ import path from "path";
 import { getDomain, isProduction, PostgresSessionStore } from "server";
 import { resolveProxyTrust } from "./app";
 import { resolveSessionSecret } from "./session-secret";
-import handleApi, { isRawBodyPath } from "./routes";
+import handleApi, { isPingRequest, isRawBodyPath } from "./routes";
 import { mountedPath } from "./routes/route";
 import { errorHandler, reportMiddlewareError, serverErrorHandler } from "./error-handler";
 import { startCleanupScheduler } from "./rate-limit";
@@ -99,9 +99,10 @@ const autoconfig = (): Response => {
 export type HttpApp = (request: Request, peerAddress: string) => Promise<Response>;
 
 /**
- * Assembles the whole request pipeline: JSON body, session, the `/api`
- * routes, mail-client autoconfig, the built client with its single-page
- * fallback, and {@link errorHandler} for anything that escapes.
+ * Assembles the whole request pipeline: JSON body, the session (read only for
+ * `/api` requests other than the liveness ping), the `/api` routes,
+ * mail-client autoconfig, the built client with its single-page fallback, and
+ * {@link errorHandler} for anything that escapes.
  *
  * The store is a parameter so the pipeline can be driven end to end against
  * an in-memory one: a store fault is raised before any route runs, and the
@@ -141,7 +142,9 @@ export const createHttpApp = (store: SessionStore): HttpApp => {
     let response: Response;
     try {
       const body = isRawBodyPath(url.pathname) ? {} : await readJsonBody(request);
-      session = await HttpSession.load(request.headers.get("cookie"), store, {
+      const apiPath = mountedPath(url.pathname, "/api");
+      const usesSession = apiPath !== undefined && !isPingRequest(method, apiPath);
+      session = await HttpSession.load(usesSession ? request.headers.get("cookie") : null, store, {
         secret: sessionSecret,
         secure: production,
       });

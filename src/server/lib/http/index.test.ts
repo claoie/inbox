@@ -53,9 +53,19 @@ const restoreEnv = () => {
 /** Session rows by id, standing in for the Postgres store. */
 class MemoryStore implements SessionStore {
   readonly rows = new Map<string, RuntimeSessionType>();
-  get = async (id: string) => this.rows.get(id) ?? null;
+  readonly calls: string[] = [];
+  get = async (id: string) => {
+    this.calls.push(`get ${id}`);
+    return this.rows.get(id) ?? null;
+  };
   set = async (id: string, session: RuntimeSessionType) => {
+    this.calls.push(`set ${id}`);
     this.rows.set(id, session);
+  };
+  touch = async (id: string, expires: Date) => {
+    this.calls.push(`touch ${id}`);
+    const row = this.rows.get(id);
+    if (row) row.cookie._expires = expires;
   };
   destroy = async (id: string) => {
     this.rows.delete(id);
@@ -134,15 +144,19 @@ describe("createHttpApp security headers", () => {
 });
 
 const WEEK_MS = 7 * 24 * 3600 * 1000;
+const DAY_MS = 24 * 3600 * 1000;
 
-/** A store holding one live session, and the cookie that names it. */
+/**
+ * A store holding one live session, and the cookie that names it. The session
+ * was last renewed a day ago, so the next request that reads it slides it.
+ */
 const seededStore = (mode: "production" | "development") => {
   const store = new MemoryStore();
   store.rows.set("seeded-session-id", {
     user: { id: "u1", username: "alice", email: "alice@example.com" },
     cookie: {
       originalMaxAge: WEEK_MS,
-      _expires: new Date(Date.now() + WEEK_MS),
+      _expires: new Date(Date.now() + WEEK_MS - DAY_MS),
       httpOnly: true,
       path: "/",
       secure: mode === "production",
@@ -215,15 +229,46 @@ describe("createHttpApp session cookie", () => {
     }
   });
 
-  it("re-issues the cookie for a live session on every request (rolling)", async () => {
+  it("re-issues the cookie once per renewal interval, not on every request", async () => {
     useMode("development");
     const { store, cookie } = seededStore("development");
-    for (let i = 0; i < 2; i++) {
-      const res = await call(store, "/api/ping", { headers: { Cookie: cookie } });
+    const setCookies: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const res = await call(store, "/api/users/login", { headers: { Cookie: cookie } });
       await res.text();
-      expect(res.headers.getSetCookie()).toHaveLength(1);
-      expect(res.headers.getSetCookie()[0]!.split(";")[0]).toBe(cookie);
+      setCookies.push(res.headers.getSetCookie().length);
+      if (i === 0) expect(res.headers.getSetCookie()[0]!.split(";")[0]).toBe(cookie);
     }
+    expect(setCookies).toEqual([1, 0, 0]);
+    expect(store.calls).toEqual([
+      "get seeded-session-id",
+      "touch seeded-session-id",
+      "get seeded-session-id",
+      "get seeded-session-id",
+    ]);
+  });
+
+  it("leaves the session store alone for the ping, static files, the SPA fallback and a 404", async () => {
+    useMode("development");
+    const { store, cookie } = seededStore("development");
+    const paths = ["/api/ping", "/", "/index.html", "/nope.png", "/assets/missing.js"];
+    for (const path of paths) {
+      const get = await call(store, path, { headers: { Cookie: cookie } });
+      await get.arrayBuffer();
+      expect([path, get.headers.getSetCookie()]).toEqual([path, []]);
+    }
+    const post = await call(store, "/nope", { method: "POST", headers: { Cookie: cookie } });
+    await post.arrayBuffer();
+    expect(post.status).toBe(404);
+    expect(store.calls).toEqual([]);
+  });
+
+  it("reads the session on an /api route next to the ping", async () => {
+    useMode("development");
+    const { store, cookie } = seededStore("development");
+    const res = await call(store, "/api/pingx", { headers: { Cookie: cookie } });
+    await res.text();
+    expect(store.calls[0]).toBe("get seeded-session-id");
   });
 
   it("sets no cookie for a session that was never touched", async () => {

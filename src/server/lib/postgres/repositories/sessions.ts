@@ -90,6 +90,21 @@ export const updateSession = async (
 };
 
 /**
+ * Moves a session's expiry without rewriting the rest of its row. An id with
+ * no row stays absent, so a session deleted mid-request is not recreated.
+ * @param session_id
+ * @param expires
+ * @returns A promise that settles once the row is written. A failed write
+ * rejects.
+ */
+export const touchSession = async (
+  session_id: string,
+  expires: Date
+): Promise<void> => {
+  await sessionsTable.update(session_id, { [COOKIE_EXPIRES]: expires });
+};
+
+/**
  * Deletes a session object with given session_id.
  * @param session_id
  * @returns A promise to be true when a row was deleted, false when no row
@@ -288,6 +303,15 @@ export class PostgresSessionStore implements SessionStore {
     const storedSession = new Session({ user, cookie: storedCookie, auth });
 
     await updateSession(session_id, storedSession);
+  };
+
+  /**
+   * Slides a stored session's expiry.
+   * @param session_id
+   * @param expires
+   */
+  touch = async (session_id: string, expires: Date): Promise<void> => {
+    await touchSession(session_id, expires);
   };
 
   /**
