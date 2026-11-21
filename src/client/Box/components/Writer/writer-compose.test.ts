@@ -145,6 +145,34 @@ const buttonByText = (container: HTMLElement, text: string) =>
     (b) => b.textContent === text
   ) as HTMLButtonElement;
 
+// Sends through the real Send button and returns what was posted.
+const send = async (mount: Awaited<ReturnType<typeof mountWriter>>) => {
+  const { call } = await import("client");
+  const original = {
+    postFormData: call.postFormData,
+    confirm: window.confirm,
+    alert: window.alert
+  };
+  let posted: FormData | null = null;
+  call.postFormData = (async (_url: string, data: FormData) => {
+    posted = data;
+    return { status: "success" };
+  }) as typeof call.postFormData;
+  window.confirm = () => true;
+  window.alert = () => {};
+  try {
+    await mount.act(async () => {
+      buttonByText(mount.container, "Send").click();
+    });
+    await mount.act(async () => {});
+  } finally {
+    call.postFormData = original.postFormData;
+    window.confirm = original.confirm;
+    window.alert = original.alert;
+  }
+  return posted as FormData | null;
+};
+
 describe("Writer compose (design doc §7)", () => {
   it("pre-fills From from the selected mailbox on fresh compose", async () => {
     const { container, teardown } = await mountWriter({
@@ -404,34 +432,6 @@ describe("Writer compose settings", () => {
     html: "<p>quoted body</p>"
   };
   const forward: ReplyData = { ...reply, to: undefined };
-
-  // Sends through the real Send button and returns what was posted.
-  const send = async (mount: Awaited<ReturnType<typeof mountWriter>>) => {
-    const { call } = await import("client");
-    const original = {
-      postFormData: call.postFormData,
-      confirm: window.confirm,
-      alert: window.alert
-    };
-    let posted: FormData | null = null;
-    call.postFormData = (async (_url: string, data: FormData) => {
-      posted = data;
-      return { status: "success" };
-    }) as typeof call.postFormData;
-    window.confirm = () => true;
-    window.alert = () => {};
-    try {
-      await mount.act(async () => {
-        buttonByText(mount.container, "Send").click();
-      });
-      await mount.act(async () => {});
-    } finally {
-      call.postFormData = original.postFormData;
-      window.confirm = original.confirm;
-      window.alert = original.alert;
-    }
-    return posted as FormData | null;
-  };
 
   it("fills From with the default From when no mailbox is selected", async () => {
     const setHasDraftCalls: unknown[] = [];
@@ -882,6 +882,94 @@ describe("Writer close, validation and send feedback", () => {
       expect(setHasDraftCalls[setHasDraftCalls.length - 1]).toBe(false);
     } finally {
       await teardown();
+    }
+  });
+});
+
+describe("Writer Cc/Bcc recipients", () => {
+  const ccInput = (container: HTMLElement) =>
+    inputByPlaceholder(container, "Cc recipients, separated by commas");
+  const bccInput = (container: HTMLElement) =>
+    inputByPlaceholder(container, "Bcc recipients, separated by commas");
+
+  it("sends no Cc or Bcc after their fields are closed, and keeps the values for reopening", async () => {
+    const mount = await mountWriter({ selectedAccount: "maple@example.com" });
+    const { act, container } = mount;
+    try {
+      await act(async () => {
+        setInputValue(
+          inputByPlaceholder(container, "Recipients, separated by commas"),
+          "visible@example.com"
+        );
+      });
+      await act(async () => {
+        buttonByText(container, "Cc").click();
+        buttonByText(container, "Bcc").click();
+      });
+      await act(async () => {
+        setInputValue(ccInput(container), "cc-person@example.com");
+      });
+      await act(async () => {
+        setInputValue(bccInput(container), "bcc-person@example.com");
+      });
+      await act(async () => {
+        buttonByText(container, "Cc").click();
+        buttonByText(container, "Bcc").click();
+      });
+      expect(ccInput(container)).toBeNull();
+      expect(bccInput(container)).toBeNull();
+
+      await act(async () => {
+        buttonByText(container, "Cc").click();
+      });
+      expect(ccInput(container).value).toBe("cc-person@example.com");
+      await act(async () => {
+        buttonByText(container, "Cc").click();
+      });
+
+      const posted = await send(mount);
+      expect(posted).not.toBeNull();
+      expect(posted!.get("to")).toBe("visible@example.com");
+      expect(posted!.has("cc")).toBe(false);
+      expect(posted!.has("bcc")).toBe(false);
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("opens the Cc and Bcc fields for a reply that carries them, so every recipient is shown", async () => {
+    const reply: ReplyData = {
+      id: "mail-2",
+      messageId: "<cc@host>",
+      date: "2026-01-02T03:04:05.000Z",
+      subject: "Team thread",
+      from: {
+        text: "alice@x.com",
+        value: [{ address: "alice@x.com", name: "" }]
+      } as ReplyData["from"],
+      to: { address: "maple@example.com" } as ReplyData["to"],
+      cc: {
+        text: "carol@x.com, dave@x.com",
+        value: [
+          { address: "carol@x.com", name: "" },
+          { address: "dave@x.com", name: "" }
+        ]
+      } as ReplyData["cc"],
+      bcc: {
+        text: "erin@x.com",
+        value: [{ address: "erin@x.com", name: "" }]
+      } as ReplyData["bcc"],
+      html: "<p>quoted body</p>"
+    };
+    const mount = await mountWriter({ replyData: reply });
+    try {
+      expect(ccInput(mount.container).value).toBe("carol@x.com, dave@x.com");
+      expect(bccInput(mount.container).value).toBe("erin@x.com");
+      const posted = await send(mount);
+      expect(posted!.get("cc")).toBe("carol@x.com, dave@x.com");
+      expect(posted!.get("bcc")).toBe("erin@x.com");
+    } finally {
+      await mount.teardown();
     }
   });
 });
