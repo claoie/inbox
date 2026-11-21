@@ -885,3 +885,113 @@ describe("Writer close, validation and send feedback", () => {
     }
   });
 });
+
+describe("Writer reply over an existing draft", () => {
+  const reply: ReplyData = {
+    id: "mail-9",
+    messageId: "<reply@host>",
+    date: "2026-01-02T03:04:05.000Z",
+    subject: "Status",
+    from: {
+      text: "Alice <alice@x.com>",
+      value: [{ address: "alice@x.com", name: "Alice" }]
+    } as ReplyData["from"],
+    to: { address: "maple@example.com" } as ReplyData["to"],
+    html: "<p>quoted body</p>"
+  };
+
+  const recipients = "Recipients, separated by commas";
+
+  const writeDraft = async (mount: Awaited<ReturnType<typeof mountWriter>>) => {
+    await mount.act(async () => {
+      setInputValue(inputByPlaceholder(mount.container, recipients), "colleague@example.com");
+    });
+    await mount.act(async () => {
+      setInputValue(inputByPlaceholder(mount.container, "Subject"), "Quarterly numbers");
+    });
+    await mount.act(async () => {
+      mount.editor().insertText("Here are the numbers");
+    });
+  };
+
+  const countConfirms = (answer: boolean) => {
+    const asked: string[] = [];
+    window.confirm = (message?: string) => {
+      asked.push(String(message));
+      return answer;
+    };
+    return asked;
+  };
+
+  it("keeps every field of the draft when the replacement is declined", async () => {
+    const mount = await mountWriter();
+    try {
+      await writeDraft(mount);
+      await mount.update({ isWriterOpen: false });
+      const asked = countConfirms(false);
+      await mount.update({ isWriterOpen: true, replyData: reply });
+      await mount.act(async () => {});
+      expect(asked.length).toBe(1);
+      expect(asked[0]).toContain("Replace your draft?");
+      expect(inputByPlaceholder(mount.container, recipients).value).toBe("colleague@example.com");
+      expect(inputByPlaceholder(mount.container, "Subject").value).toBe("Quarterly numbers");
+      expect(mount.editor().getHTML()).toBe("<p>Here are the numbers</p>");
+      expect(JSON.parse(localStorage.getItem("initialContent") || '""')).toBe(
+        "<p>Here are the numbers</p>"
+      );
+      expect(mount.container.querySelector(".original_message")).toBeNull();
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("replaces the draft with the reply once the user agrees", async () => {
+    const mount = await mountWriter();
+    try {
+      await writeDraft(mount);
+      const asked = countConfirms(true);
+      await mount.update({ replyData: reply });
+      await mount.act(async () => {});
+      expect(asked.length).toBe(1);
+      expect(inputByPlaceholder(mount.container, recipients).value).toBe("alice@x.com");
+      expect(inputByPlaceholder(mount.container, "Subject").value).toBe("Re: Status");
+      expect(mount.editor().getHTML()).not.toContain("Here are the numbers");
+      expect(mount.container.querySelector(".original_message")).not.toBeNull();
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("fills an empty or only pre-filled form without asking", async () => {
+    const asked = countConfirms(false);
+    const mount = await mountWriter({ selectedAccount: "maple@example.com" });
+    try {
+      await mount.update({ isWriterOpen: false });
+      await mount.update({ isWriterOpen: true, replyData: reply });
+      await mount.act(async () => {});
+      expect(asked.length).toBe(0);
+      expect(inputByPlaceholder(mount.container, recipients).value).toBe("alice@x.com");
+      expect(inputByPlaceholder(mount.container, "Subject").value).toBe("Re: Status");
+    } finally {
+      await mount.teardown();
+    }
+  });
+
+  it("asks once for one Reply, however often the writer re-renders", async () => {
+    const mount = await mountWriter();
+    try {
+      await writeDraft(mount);
+      const asked = countConfirms(false);
+      await mount.update({ replyData: reply });
+      await mount.act(async () => {});
+      await mount.act(async () => {
+        setInputValue(inputByPlaceholder(mount.container, "Subject"), "Quarterly numbers v2");
+      });
+      await mount.rerender();
+      expect(asked.length).toBe(1);
+      expect(inputByPlaceholder(mount.container, "Subject").value).toBe("Quarterly numbers v2");
+    } finally {
+      await mount.teardown();
+    }
+  });
+});

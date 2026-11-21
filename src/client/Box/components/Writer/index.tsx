@@ -16,6 +16,7 @@ import {
   SendMailPostBody,
   SendMailPostResponse
 } from "server";
+import { ReplyData } from "common";
 
 import {
   Context,
@@ -275,30 +276,45 @@ const Writer = () => {
     [editor, setInitialContent]
   );
 
-  useEffect(() => {
-    if (replyData.id && replyData.messageId && setReplyData && isWriterOpen) {
+  const hasDraftContent = hasDraftFields({
+    name,
+    to,
+    cc,
+    bcc,
+    subject,
+    sender,
+    initialContent,
+    isReply: !!(originalMessageMeta.id || originalMessageMeta.messageId),
+    prefilledName: prefilledFrom ? displayNameFor(prefilledFrom) : undefined,
+    prefilledSender: prefilledFrom
+      ? prefilledFrom.split("@")[0] || ""
+      : undefined
+  }) || Object.keys(attachments).length > 0;
+
+  const applyReply = useCallback(
+    (reply: ReplyData) => {
       // A name still holding the default-From pre-fill would sign a reply
       // sent from another address with the default mailbox's name. A
       // forward has no reply address; it sends from the selected mailbox.
-      const replyFrom = replyData.to?.address || selectedMailbox;
+      const replyFrom = reply.to?.address || selectedMailbox;
       if (defaultFrom && replyFrom.toLowerCase() !== defaultFrom.toLowerCase()) {
         const defaultName = displayNameFor(defaultFrom);
         setName((current) => (current === defaultName ? "" : current));
       }
-      setSender(replyData.to?.address?.split("@")[0] || "");
-      setTo(replyData.from?.value?.[0]?.address || "");
-      setCc(replyData.cc?.value?.map((e) => e.address).join(", ") || "");
-      setBcc(replyData.bcc?.value?.map((e) => e.address).join(", ") || "");
+      setSender(reply.to?.address?.split("@")[0] || "");
+      setTo(reply.from?.value?.[0]?.address || "");
+      setCc(reply.cc?.value?.map((e) => e.address).join(", ") || "");
+      setBcc(reply.bcc?.value?.map((e) => e.address).join(", ") || "");
       // A reply that carries Cc/Bcc opens those inputs, so the values are
       // visible and editable instead of parked in a hidden disabled field.
-      if (replyData.cc?.value?.length) setIsCcOpen(true);
-      if (replyData.bcc?.value?.length) setIsBccOpen(true);
+      if (reply.cc?.value?.length) setIsCcOpen(true);
+      if (reply.bcc?.value?.length) setIsBccOpen(true);
 
-      const subjectLower = (replyData.subject || "").toLowerCase();
+      const subjectLower = (reply.subject || "").toLowerCase();
       const replyMarkExistsInSubect = subjectLower.indexOf("re:") === 0;
       const forwardMarkExistsInSubect = subjectLower.indexOf("fwd:") === 0;
-      const originalSubject = replyData.subject || "";
-      const subject = replyData.to?.address
+      const originalSubject = reply.subject || "";
+      const subject = reply.to?.address
         ? replyMarkExistsInSubect
           ? originalSubject
           : "Re: " + originalSubject
@@ -307,41 +323,69 @@ const Writer = () => {
         : "Fwd: " + originalSubject;
       setSubject(subject);
 
-      const editorContent = replyData.to?.address
-        ? replyData.insight?.suggested_reply || ""
+      const editorContent = reply.to?.address
+        ? reply.insight?.suggested_reply || ""
         : "";
 
       setEditorContent(editorContent);
       setAttachments({});
-      const original = replyDataToOriginalMessage(replyData);
+      const original = replyDataToOriginalMessage(reply);
       // Without the quote a reply still threads: the meta keeps the
       // original's Message-ID for In-Reply-To, and the empty id means no
       // quote is shown or re-fetched. Forwards always carry the original.
-      const leaveQuoteOut = !!replyData.to?.address && !includeOriginal;
+      const leaveQuoteOut = !!reply.to?.address && !includeOriginal;
       setOriginalMessage(
         leaveQuoteOut ? { ...original, id: "", prefix: "", html: "" } : original
       );
+    },
+    [
+      setSender,
+      setTo,
+      setCc,
+      setBcc,
+      setSubject,
+      setAttachments,
+      setOriginalMessage,
+      setEditorContent,
+      setIsCcOpen,
+      setIsBccOpen,
+      includeOriginal,
+      defaultFrom,
+      selectedMailbox,
+      setName
+    ]
+  );
 
-      setReplyData({});
+  // Reply and Forward fill every field of the form; a draft already in it is
+  // replaced only once the user agrees, otherwise it stays as it was.
+  const handledReply = useRef<ReplyData | null>(null);
+  useEffect(() => {
+    if (!replyData.id || !replyData.messageId || !isWriterOpen) return;
+    if (handledReply.current === replyData) return;
+    handledReply.current = replyData;
+    const reply = replyData;
+    setReplyData({});
+    if (!hasDraftContent) {
+      applyReply(reply);
+      return;
     }
+    confirm({
+      title: "Replace your draft?",
+      message:
+        "The message you are writing, its recipients and attachments will be lost.",
+      confirmLabel: "Replace",
+      cancelLabel: "Keep draft",
+      danger: true
+    }).then((ok) => {
+      if (ok) applyReply(reply);
+    });
   }, [
-    setSender,
-    setTo,
-    setCc,
-    setBcc,
-    setSubject,
-    setAttachments,
     replyData,
     setReplyData,
     isWriterOpen,
-    setOriginalMessage,
-    setEditorContent,
-    setIsCcOpen,
-    setIsBccOpen,
-    includeOriginal,
-    defaultFrom,
-    selectedMailbox,
-    setName
+    hasDraftContent,
+    applyReply,
+    confirm
   ]);
 
   const sendMail = (data: FormData) => {
@@ -395,21 +439,6 @@ const Writer = () => {
       prefix: ""
     });
   };
-
-  const hasDraftContent = hasDraftFields({
-    name,
-    to,
-    cc,
-    bcc,
-    subject,
-    sender,
-    initialContent,
-    isReply: !!(originalMessageMeta.id || originalMessageMeta.messageId),
-    prefilledName: prefilledFrom ? displayNameFor(prefilledFrom) : undefined,
-    prefilledSender: prefilledFrom
-      ? prefilledFrom.split("@")[0] || ""
-      : undefined
-  }) || Object.keys(attachments).length > 0;
 
   // Discard throws the draft away and closes the writer; it asks first when
   // there is anything to lose.
