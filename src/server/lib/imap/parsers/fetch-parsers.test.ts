@@ -1,7 +1,8 @@
 
 import { describe, it, expect } from "bun:test";
 import { parseCommand } from "./index";
-import type { FetchDataItem } from "../types";
+import { parseBodyFetch, parseBodySection } from "./fetch-parsers";
+import type { FetchDataItem, ParseContext } from "../types";
 
 function parseFetch(args: string) {
   const result = parseCommand(`A001 FETCH ${args}`);
@@ -290,4 +291,141 @@ describe("fetch-parsers > macros", () => {
       "BODY",
     ]);
   });
+});
+
+// ---------------------------------------------------------------------------
+// parseBodySection (direct)
+// ---------------------------------------------------------------------------
+
+describe("fetch-parsers > parseBodySection", () => {
+  const cases: [string, unknown][] = [
+    ["", { type: "FULL" }],
+    ["HEADER", { type: "HEADER" }],
+    ["header", { type: "HEADER" }],
+    ["TEXT", { type: "TEXT" }],
+    ["Text", { type: "TEXT" }],
+    ["1", { type: "MIME_PART", partNumber: "1" }],
+    ["1.2.3", { type: "MIME_PART", partNumber: "1.2.3" }],
+    ["1.HEADER", { type: "MIME_PART", partNumber: "1", subSection: "HEADER" }],
+    ["2.3.TEXT", { type: "MIME_PART", partNumber: "2.3", subSection: "TEXT" }],
+    ["1.mime", { type: "MIME_PART", partNumber: "1", subSection: "MIME" }],
+    [
+      "HEADER.FIELDS (FROM TO)",
+      { type: "HEADER_FIELDS", not: false, fields: ["FROM", "TO"] },
+    ],
+    [
+      "header.fields (From x-Mailer)",
+      { type: "HEADER_FIELDS", not: false, fields: ["FROM", "X-MAILER"] },
+    ],
+    [
+      "HEADER.FIELDS.NOT (BCC)",
+      { type: "HEADER_FIELDS", not: true, fields: ["BCC"] },
+    ],
+    [
+      "HEADER.FIELDS.NOT (Received   DKIM-Signature)",
+      { type: "HEADER_FIELDS", not: true, fields: ["RECEIVED", "DKIM-SIGNATURE"] },
+    ],
+  ];
+
+  for (const [input, expected] of cases) {
+    it(`parses ${JSON.stringify(input)}`, () => {
+      const result = parseBodySection(input);
+      expect(result.success).toBe(true);
+      expect(result.value).toEqual(expected as never);
+    });
+  }
+
+  const invalid = ["FOO", "MIME", "1.", ".1", "1..2", "1.FOO", "HEADER.FIELDS", "a1"];
+
+  for (const input of invalid) {
+    it(`rejects ${JSON.stringify(input)}`, () => {
+      const result = parseBodySection(input);
+      expect(result.success).toBe(false);
+      expect(result.value).toBeUndefined();
+      expect(result.error).toBe(`Invalid body section: ${input}`);
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// parseBodyFetch (direct)
+// ---------------------------------------------------------------------------
+
+describe("fetch-parsers > parseBodyFetch", () => {
+  const context: ParseContext = { input: "", position: 0, length: 0 };
+
+  const cases: [string, unknown][] = [
+    ["BODY", { type: "BODYSTRUCTURE", extensible: false }],
+    ["BODY.PEEK", { type: "BODY", peek: true, section: { type: "FULL" } }],
+    ["BODY[]", { type: "BODY", peek: false, section: { type: "FULL" } }],
+    ["BODY.PEEK[]", { type: "BODY", peek: true, section: { type: "FULL" } }],
+    ["BODY[TEXT]", { type: "BODY", peek: false, section: { type: "TEXT" } }],
+    [
+      "BODY.PEEK[1.2.MIME]",
+      {
+        type: "BODY",
+        peek: true,
+        section: { type: "MIME_PART", partNumber: "1.2", subSection: "MIME" },
+      },
+    ],
+    [
+      "BODY.PEEK[HEADER.FIELDS (DATE FROM)]",
+      {
+        type: "BODY",
+        peek: true,
+        section: { type: "HEADER_FIELDS", not: false, fields: ["DATE", "FROM"] },
+      },
+    ],
+    [
+      "BODY[]<0.1024>",
+      {
+        type: "BODY",
+        peek: false,
+        section: { type: "FULL" },
+        partial: { start: 0, length: 1024 },
+      },
+    ],
+    [
+      "BODY.PEEK[2]<500.12345>",
+      {
+        type: "BODY",
+        peek: true,
+        section: { type: "MIME_PART", partNumber: "2" },
+        partial: { start: 500, length: 12345 },
+      },
+    ],
+  ];
+
+  for (const [input, expected] of cases) {
+    it(`parses ${input}`, () => {
+      const result = parseBodyFetch(input, context);
+      expect(result.success).toBe(true);
+      expect(result.value).toEqual(expected as never);
+    });
+  }
+
+  it("leaves partial undefined when no range follows the section", () => {
+    const result = parseBodyFetch("BODY[HEADER]", context);
+    expect(result.value).toEqual({ type: "BODY", peek: false, section: { type: "HEADER" } });
+    if (result.value?.type !== "BODY") throw new Error("expected BODY");
+    expect(result.value.partial).toBeUndefined();
+  });
+
+  it("rejects an unknown section atom inside well-formed brackets", () => {
+    const result = parseBodyFetch("BODY[FOO]", context);
+    expect(result.success).toBe(false);
+    expect(result.value).toBeUndefined();
+    expect(result.error).toBe("Invalid body section");
+  });
+
+  const malformed = ["BODY[", "BODY[1", "BODY.PEEK[TEXT", "BODY]", "BODYX[]", "BODY.PEEKX[]", "RFC822", ""];
+
+  for (const input of malformed) {
+    it(`rejects malformed expression ${JSON.stringify(input)}`, () => {
+      const result = parseBodyFetch(input, context);
+      expect(result.success).toBe(false);
+      expect(result.value).toBeUndefined();
+      expect(result.error).toBe(`Invalid body expression: ${input}`);
+    });
+  }
 });
