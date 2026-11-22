@@ -20,6 +20,8 @@ import {
 import { formatFileSize } from "client/lib/formatters";
 import FileIcon from "client/Box/components/FileIcon";
 
+const XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
+
 interface Props {
   mailId: string;
 }
@@ -204,6 +206,8 @@ const MailBody = ({ mailId }: Props) => {
       Array.from(content.querySelectorAll("a")).forEach((e) => {
         const target = e.getAttribute("target");
         if (!target || target[0] === "_") e.setAttribute("target", "_blank");
+        // `a` also matches SVG <a>, which has no innerText.
+        if (e.namespaceURI !== XHTML_NAMESPACE) return;
         const text = e.innerText.replaceAll("\\n", " ");
         e.innerText = text.length > 50 ? text.substring(0, 47) + "..." : text;
       });
