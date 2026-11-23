@@ -173,9 +173,8 @@ describe("a submission to an outside address", () => {
     expect(search_vector).toContain("'outgo':1");
     expect(row).toEqual({
       user_id: user.id,
-      // NOTE: Mailgun's id already comes in angle brackets and with a domain;
-      // it is wrapped a second time. The Message-ID the client wrote is dropped.
-      message_id: `<<20260303.fixed@mail.test>@${user.username}.mail.test>`,
+      // NOTE: the stored id is Mailgun's; the Message-ID the client wrote is dropped.
+      message_id: "<20260303.fixed@mail.test>",
       subject: "Outgoing subject",
       html: '<div style="white-space: pre-wrap">Hello Bob\n</div>',
       text: "Hello Bob",

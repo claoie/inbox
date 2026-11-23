@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll } from "bun:test";
-import { addressField, envelopeRecipients, parseAddressList } from "./send";
+import {
+  addressField,
+  envelopeRecipients,
+  parseAddressList,
+  sentMessageId
+} from "./send";
 
 describe("parseAddressList — case normalization (#573)", () => {
   it("lowercases a single address", () => {
@@ -100,5 +105,36 @@ describe("getSentMail — fields unreachable without the DB", () => {
     expect(fnSource).toMatch(
       /envelopeTo:\s*envelopeRecipients\(to,\s*cc,\s*bcc\),\n/
     );
+  });
+});
+
+describe("sentMessageId — the Sent copy's Message-ID", () => {
+  it("keeps a Mailgun id that already names a domain as the recipients saw it", () => {
+    expect(sentMessageId("<20260328063118.abc@mail.test>", "u.mail.test")).toBe(
+      "<20260328063118.abc@mail.test>"
+    );
+  });
+
+  it("brackets an unbracketed id that names a domain", () => {
+    expect(sentMessageId(" abc@mail.test ", "u.mail.test")).toBe(
+      "<abc@mail.test>"
+    );
+  });
+
+  it("puts a bare token on the user's domain", () => {
+    expect(sentMessageId("bare-id", "u.mail.test")).toBe(
+      "<bare-id@u.mail.test>"
+    );
+    expect(sentMessageId("<bare-id>", "u.mail.test")).toBe(
+      "<bare-id@u.mail.test>"
+    );
+  });
+
+  it("mints a UUID on the user's domain when there is no id", () => {
+    const uuidOnDomain =
+      /^<[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}@u\.mail\.test>$/;
+    for (const missing of [undefined, "", "  "]) {
+      expect(sentMessageId(missing, "u.mail.test")).toMatch(uuidOnDomain);
+    }
   });
 });

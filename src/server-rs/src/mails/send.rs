@@ -318,12 +318,9 @@ pub async fn send_mail(
     }
 
     let mailgun_id = response.as_ref().and_then(|response| response.id.clone()).filter(js::is_truthy);
-    let message_id = match &mailgun_id {
-        Some(id) => js_string(id),
-        None => uuid::Uuid::new_v4().to_string(),
-    };
+    let provider_id = mailgun_id.as_ref().map(js_string);
     let mailgun_id_json = mailgun_id.clone().unwrap_or(Value::Null);
-    let sent_mail = match get_sent_mail(user, &mail, &message_id, files).await {
+    let sent_mail = match get_sent_mail(user, &mail, provider_id.as_deref(), files).await {
         Ok(sent_mail) => sent_mail,
         Err(error) => {
             logger::error_with(
@@ -375,6 +372,20 @@ pub fn bracketed_message_id(id: &str) -> String {
     format!("<{}>", bare_message_id(id))
 }
 
+/// The Message-ID stored on the Sent copy. Mailgun's id already names a domain
+/// and is the one recipients see, so it is kept as given; a bare token, or no
+/// id at all, gets one minted on the user's domain.
+pub fn sent_message_id(provider_id: Option<&str>, user_domain: &str) -> String {
+    let bare = provider_id.map(bare_message_id).unwrap_or_default();
+    if bare.contains('@') {
+        return format!("<{bare}>");
+    }
+    if bare.is_empty() {
+        return format!("<{}@{user_domain}>", uuid::Uuid::new_v4());
+    }
+    format!("<{bare}@{user_domain}>")
+}
+
 /// The `References` of a reply from the given earlier References: those ids
 /// bracketed, without the answered id, then the answered id, the last 50.
 pub fn build_references(earlier: &[String], answered: &str) -> Vec<String> {
@@ -419,7 +430,7 @@ async fn attachments_to_save(files: &[UploadedFile]) -> anyhow::Result<Vec<Attac
 async fn get_sent_mail(
     user: &SignedUser,
     mail: &MailDataToSend,
-    message_id: &str,
+    provider_id: Option<&str>,
     files: &[UploadedFile],
 ) -> anyhow::Result<Mail> {
     let text = text_of_html(&mail.html)?;
@@ -443,7 +454,7 @@ async fn get_sent_mail(
         html: pg_text(&mail.html),
         date: js::now_iso(),
         attachments,
-        message_id: format!("<{message_id}@{user_domain}>"),
+        message_id: sent_message_id(provider_id, &user_domain),
         from: Some(MailAddress { value: vec![sender.clone()], text: from_text }),
         to: address_field(mail.to_list()),
         cc: address_field(mail.cc_list()),
@@ -525,6 +536,18 @@ mod tests {
         assert_eq!(built.len(), 50);
         assert_eq!(built[0], "<id11@x>");
         assert_eq!(built[49], "<last@x>");
+    }
+
+    #[test]
+    fn the_sent_copy_keeps_mailguns_id_and_mints_one_only_without_a_domain() {
+        assert_eq!(sent_message_id(Some("<abc@mail.test>"), "u.mail.test"), "<abc@mail.test>");
+        assert_eq!(sent_message_id(Some(" abc@mail.test "), "u.mail.test"), "<abc@mail.test>");
+        assert_eq!(sent_message_id(Some("bare-id"), "u.mail.test"), "<bare-id@u.mail.test>");
+        for missing in [None, Some(""), Some("  ")] {
+            let minted = sent_message_id(missing, "u.mail.test");
+            let token = minted.strip_prefix('<').and_then(|m| m.strip_suffix("@u.mail.test>")).unwrap();
+            assert!(uuid::Uuid::parse_str(token).is_ok(), "{minted}");
+        }
     }
 
     #[test]

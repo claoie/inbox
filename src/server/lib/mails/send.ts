@@ -80,10 +80,9 @@ export const sendMail = async (
   try {
     const response = await sendMailgunMail(domain, mailToSend, files);
     if (!persistToSentMailbox) return response;
-    const messageId = response?.id || randomUUID();
     let sentMail;
     try {
-      sentMail = await getSentMail(user, mailToSend, messageId, files);
+      sentMail = await getSentMail(user, mailToSend, response?.id, files);
     } catch (getSentMailError) {
       logger.error(
         "Mailgun accepted the send but building the local Sent record failed",
@@ -231,10 +230,24 @@ export const threadReferences = async (
 /** A Message-ID in the `<id>` form headers require. */
 export const bracketedMessageId = (id: string) => `<${bareMessageId(id)}>`;
 
+/**
+ * The Message-ID stored on the Sent copy. Mailgun's id already names a domain
+ * and is the one recipients see, so it is kept as given; a bare token, or no
+ * id at all, gets one minted on the user's domain.
+ */
+export const sentMessageId = (
+  providerId: string | undefined,
+  userDomain: string
+) => {
+  const bare = providerId ? bareMessageId(providerId) : "";
+  if (bare.includes("@")) return `<${bare}>`;
+  return `<${bare || randomUUID()}@${userDomain}>`;
+};
+
 const getSentMail = async (
   user: SignedUser,
   mailToSend: MailDataToSend,
-  messageId: string,
+  providerId: string | undefined,
   files?: UploadedFileDynamicArray
 ): Promise<Mail> => {
   const { sender, senderDomain, senderFullName, to, cc, bcc, subject, html } = mailToSend;
@@ -258,7 +271,7 @@ const getSentMail = async (
     html,
     date: new Date().toISOString(),
     attachments,
-    messageId: `<${messageId}@${userDomain}>`,
+    messageId: sentMessageId(providerId, userDomain),
     from: {
       value: [{ name: senderFullName || undefined, address: fromEmail }],
       text: senderFullName ? `${senderFullName} <${fromEmail}>` : fromEmail

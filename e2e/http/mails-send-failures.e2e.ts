@@ -186,7 +186,7 @@ describe("POST /api/mails/send — some Bcc-only recipients fail", () => {
     expect(result).toMatchObject({ status: 200, body: SUCCESS, requests: 3, stored: 1 });
     const row = await latestMail(server, fresh.id);
     // The Message-ID comes from the first recipient that was accepted; every recipient stays on the row.
-    expect(row.message_id).toBe(`<<ok-b1@remote.example>@${fresh.domain}>`);
+    expect(row.message_id).toBe("<ok-b1@remote.example>");
     expect(row.bcc_address).toEqual([{ address: "b1@remote.example" }, { address: "b2@remote.example" }, { address: "b3@remote.example" }]);
     const alarm = await waitFor(() => server.alarms.alarms.find((a) => a.title.includes("Partially Failed")), {
       what: "the partial failure alarm",
@@ -205,7 +205,7 @@ describe("POST /api/mails/send — some Bcc-only recipients fail", () => {
       fresh
     );
     expect(result).toMatchObject({ body: SUCCESS, requests: 3, stored: 1 });
-    expect((await latestMail(server, fresh.id)).message_id).toBe(`<<ok-b2@remote.example>@${fresh.domain}>`);
+    expect((await latestMail(server, fresh.id)).message_id).toBe("<ok-b2@remote.example>");
   });
 
   test("when every recipient fails, the first recipient's failure is the one reported", async () => {

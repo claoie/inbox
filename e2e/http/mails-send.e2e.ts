@@ -196,10 +196,8 @@ describe("POST /api/mails/send — the stored Sent mail", () => {
     const me = fresh.address();
     expect(row).toEqual({
       user_id: fresh.id,
-      // NOTE: Mailgun's id already has angle brackets and a domain; the server
-      // wraps it again as "<" + id + "@" + user domain + ">". The stored
-      // Message-ID is therefore not the one the recipients see.
-      message_id: `<<fixed-id@mail.test>@${fresh.domain}>`,
+      // Mailgun's id, the one the recipients see.
+      message_id: "<fixed-id@mail.test>",
       subject: "Stored subject",
       html: "<p>Hi <b>friend</b></p><p>See https://example.com/x?y=1</p>",
       text: "Hi friend\nSee [url]",
@@ -322,7 +320,7 @@ describe("POST /api/mails/send — the stored Sent mail", () => {
         sent: true,
         insight: null,
         snippet: "Body here",
-        messageId: `<<listed@mail.test>@${fresh.domain}>`,
+        messageId: "<listed@mail.test>",
       },
     ]);
     expect((await fresh.client.get(`/api/mails/headers/${me}`)).body.body).toEqual([]);
@@ -335,7 +333,7 @@ describe("POST /api/mails/send — the stored Sent mail", () => {
       id: row.mail_id,
       html: "<p>Body here</p>",
       attachments: [],
-      messageId: `<<listed@mail.test>@${fresh.domain}>`,
+      messageId: "<listed@mail.test>",
       insight: null,
     });
   });
