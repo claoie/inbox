@@ -28,7 +28,7 @@ pub async fn get_unread_notifications(user_ids: &[String]) -> HashMap<String, Ba
       SELECT 
         user_id,
         COUNT(*) FILTER (WHERE read = FALSE) as unread_count,
-        MAX(date) as latest
+        MAX(ingested) as latest
       FROM mails
       WHERE user_id IN ({}) AND sent = FALSE AND is_spam = FALSE AND expunged = FALSE AND draft = FALSE
       GROUP BY user_id

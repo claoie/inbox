@@ -1,5 +1,5 @@
 {
-  "schemaHash": "933087e50e7b0f84",
+  "schemaHash": "79e5a5a2a90a5bcf",
   "maintenanceHash": "5c0e3e8b8a322c67",
   "tables": [
     {
@@ -186,7 +186,7 @@
     },
     {
       "name": "mails",
-      "createSql": "CREATE TABLE IF NOT EXISTS mails (\n      mail_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n      user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,\n      message_id VARCHAR(512) NOT NULL,\n      subject TEXT NOT NULL DEFAULT '',\n      date TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n      html TEXT NOT NULL DEFAULT '',\n      text TEXT NOT NULL DEFAULT '',\n      from_address JSONB,\n      from_text TEXT,\n      to_address JSONB,\n      to_text TEXT,\n      cc_address JSONB,\n      cc_text TEXT,\n      bcc_address JSONB,\n      bcc_text TEXT,\n      reply_to_address JSONB,\n      reply_to_text TEXT,\n      envelope_from JSONB,\n      envelope_to JSONB,\n      attachments JSONB,\n      read BOOLEAN NOT NULL DEFAULT FALSE,\n      saved BOOLEAN NOT NULL DEFAULT FALSE,\n      sent BOOLEAN NOT NULL DEFAULT FALSE,\n      deleted BOOLEAN NOT NULL DEFAULT FALSE,\n      draft BOOLEAN NOT NULL DEFAULT FALSE,\n      answered BOOLEAN NOT NULL DEFAULT FALSE,\n      expunged BOOLEAN NOT NULL DEFAULT FALSE,\n      insight JSONB,\n      uid_domain INTEGER NOT NULL DEFAULT 0,\n      modseq BIGINT NOT NULL DEFAULT 1,\n      spam_score INTEGER NOT NULL DEFAULT 0,\n      spam_reasons JSONB,\n      is_spam BOOLEAN NOT NULL DEFAULT FALSE,\n      rfc822_size BIGINT,\n      text_line_count INTEGER,\n      html_line_count INTEGER,\n      in_reply_to VARCHAR(512),\n      reference_ids JSONB,\n      updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,\n      search_vector TSVECTOR,\n      UNIQUE (user_id, message_id)\n    )",
+      "createSql": "CREATE TABLE IF NOT EXISTS mails (\n      mail_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n      user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,\n      message_id VARCHAR(512) NOT NULL,\n      subject TEXT NOT NULL DEFAULT '',\n      date TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n      html TEXT NOT NULL DEFAULT '',\n      text TEXT NOT NULL DEFAULT '',\n      from_address JSONB,\n      from_text TEXT,\n      to_address JSONB,\n      to_text TEXT,\n      cc_address JSONB,\n      cc_text TEXT,\n      bcc_address JSONB,\n      bcc_text TEXT,\n      reply_to_address JSONB,\n      reply_to_text TEXT,\n      envelope_from JSONB,\n      envelope_to JSONB,\n      attachments JSONB,\n      read BOOLEAN NOT NULL DEFAULT FALSE,\n      saved BOOLEAN NOT NULL DEFAULT FALSE,\n      sent BOOLEAN NOT NULL DEFAULT FALSE,\n      deleted BOOLEAN NOT NULL DEFAULT FALSE,\n      draft BOOLEAN NOT NULL DEFAULT FALSE,\n      answered BOOLEAN NOT NULL DEFAULT FALSE,\n      expunged BOOLEAN NOT NULL DEFAULT FALSE,\n      insight JSONB,\n      uid_domain INTEGER NOT NULL DEFAULT 0,\n      modseq BIGINT NOT NULL DEFAULT 1,\n      spam_score INTEGER NOT NULL DEFAULT 0,\n      spam_reasons JSONB,\n      is_spam BOOLEAN NOT NULL DEFAULT FALSE,\n      rfc822_size BIGINT,\n      text_line_count INTEGER,\n      html_line_count INTEGER,\n      in_reply_to VARCHAR(512),\n      reference_ids JSONB,\n      ingested TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n      updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,\n      search_vector TSVECTOR,\n      UNIQUE (user_id, message_id)\n    )",
       "columns": [
         [
           "mail_id",
@@ -339,6 +339,10 @@
         [
           "reference_ids",
           "JSONB"
+        ],
+        [
+          "ingested",
+          "TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP"
         ],
         [
           "updated",

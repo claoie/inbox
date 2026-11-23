@@ -192,7 +192,7 @@ describe("POST /api/mails/send — the stored Sent mail", () => {
     const after = Date.now();
     const rows = await server.db.query("SELECT * FROM mails WHERE user_id = $1", [fresh.id]);
     expect(rows).toHaveLength(1);
-    const { mail_id, date, updated, rfc822_size, search_vector, ...row } = rows[0]!;
+    const { mail_id, date, ingested, updated, rfc822_size, search_vector, ...row } = rows[0]!;
     const me = fresh.address();
     expect(row).toEqual({
       user_id: fresh.id,
@@ -244,6 +244,7 @@ describe("POST /api/mails/send — the stored Sent mail", () => {
     expect(+date).toBeGreaterThanOrEqual(before - 1000);
     expect(+date).toBeLessThanOrEqual(after + 1000);
     expect(+updated).toBeGreaterThanOrEqual(before - 1000);
+    expect(+ingested).toBeGreaterThanOrEqual(before - 1000);
     expect(Number(rfc822_size)).toBeGreaterThan(0);
     expect(search_vector).toContain("'store':");
     // Filed in the sending account's Sent mailbox, under the lower-cased local part.
