@@ -7,7 +7,13 @@ import UserEditIcon from "./components/UserEditIcon";
 
 import { SignedUser, SignedUserType } from "common";
 import { ApiResponse, SetInfoPostResponse, TokenPostResponse } from "server";
-import { Context, call, getSignInMode } from "client";
+import {
+  Context,
+  call,
+  getSignInMode,
+  setCacheUser,
+  hydrateQueryCache
+} from "client";
 
 import { copyFor, statusFor, SignUpMode } from "./messages";
 import "../SignIn/index.scss";
@@ -18,10 +24,6 @@ interface SignUpBody {
   token?: string | null;
   username?: string;
   password?: string;
-}
-
-interface SetInfoResponse extends SetInfoPostResponse {
-  username?: string;
 }
 
 const SignUp = () => {
@@ -80,14 +82,15 @@ const SignUp = () => {
   });
 
   useEffect(() => {
-    const data = mutation.data as SetInfoResponse | undefined;
-    if (data?.username && setUserInfo) {
-      setTimeout(() => {
-        const user = new SignedUser(data as unknown as SignedUserType);
-        setUserInfo(user);
-      }, 500);
-    }
-  }, [mutation.data, setUserInfo]);
+    if (!email || mutation.data?.status !== "success" || !setUserInfo) return;
+    const body = mutation.data.body as SetInfoPostResponse | undefined;
+    if (!body?.username) return;
+    const user = new SignedUser(body as unknown as SignedUserType);
+    setCacheUser(user.id);
+    hydrateQueryCache(user.id).finally(() => {
+      setTimeout(() => setUserInfo(user), 500);
+    });
+  }, [email, mutation.data, setUserInfo]);
 
   const onClickSignUp = () => {
     if (email && passwordInput && passwordInput !== passwordConfirmInput) {
