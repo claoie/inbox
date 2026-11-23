@@ -6982,7 +6982,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND is_spam = FALSE AND draft = FALSE\n          ORDER BY uid_domain ASC\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND is_spam = FALSE AND draft = FALSE\n          ORDER BY uid_domain ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -7022,6 +7022,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -9900,7 +9901,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND modseq > $5\n          ORDER BY uid_domain ASC\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND modseq > $5\n          ORDER BY uid_domain ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -9940,6 +9941,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -9965,7 +9967,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND is_spam = FALSE AND draft = FALSE\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND is_spam = FALSE AND draft = FALSE\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -10005,6 +10007,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -12883,7 +12886,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND modseq > $5\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND modseq > $5\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -12923,6 +12926,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -12948,7 +12952,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND draft = TRUE\n          ORDER BY uid_domain ASC\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND draft = TRUE\n          ORDER BY uid_domain ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -12988,6 +12992,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -15866,7 +15871,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND draft = TRUE AND modseq > $5\n          ORDER BY uid_domain ASC\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND draft = TRUE AND modseq > $5\n          ORDER BY uid_domain ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -15906,6 +15911,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -15931,7 +15937,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND draft = TRUE\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND draft = TRUE\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -15971,6 +15977,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -18849,7 +18856,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND draft = TRUE AND modseq > $5\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND draft = TRUE AND modseq > $5\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -18889,6 +18896,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -18914,7 +18922,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND is_spam = TRUE\n          ORDER BY uid_domain ASC\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND is_spam = TRUE\n          ORDER BY uid_domain ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -18954,6 +18962,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -21832,7 +21841,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND is_spam = TRUE AND modseq > $5\n          ORDER BY uid_domain ASC\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND is_spam = TRUE AND modseq > $5\n          ORDER BY uid_domain ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -21872,6 +21881,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -21897,7 +21907,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND is_spam = TRUE\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND is_spam = TRUE\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -21937,6 +21947,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -24815,7 +24826,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND is_spam = TRUE AND modseq > $5\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND is_spam = TRUE AND modseq > $5\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -24855,6 +24866,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -24880,7 +24892,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND is_spam = TRUE\n          ORDER BY uid_domain ASC\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND is_spam = TRUE\n          ORDER BY uid_domain ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -24920,6 +24932,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -27798,7 +27811,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND is_spam = TRUE AND modseq > $5\n          ORDER BY uid_domain ASC\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND uid_domain >= $3 AND uid_domain <= $4\n            AND expunged = FALSE AND is_spam = TRUE AND modseq > $5\n          ORDER BY uid_domain ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -27838,6 +27851,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -27863,7 +27877,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND is_spam = TRUE\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND is_spam = TRUE\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -27903,6 +27917,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -30781,7 +30796,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND is_spam = TRUE AND modseq > $5\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
+   "sql": "\n          SELECT mail_id, user_id, message_id, subject, date, html, text, from_address, from_text, to_address, to_text, cc_address, cc_text, bcc_address, bcc_text, reply_to_address, reply_to_text, envelope_from, envelope_to, attachments, read, saved, sent, deleted, draft, answered, expunged, insight, uid_domain, modseq, spam_score, spam_reasons, is_spam, rfc822_size, text_line_count, html_line_count, in_reply_to, reference_ids, ingested, updated, search_vector, uid_domain AS uid_mailbox, octet_length(text) AS text_octets, octet_length(html) AS html_octets FROM mails\n          WHERE user_id = $1 AND sent = $2 AND expunged = FALSE AND is_spam = TRUE AND modseq > $5\n          ORDER BY uid_domain ASC\n          OFFSET $3 LIMIT $4\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -30821,6 +30836,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -30846,7 +30862,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE AND m.is_spam = FALSE AND m.draft = FALSE\n          ORDER BY x.uid ASC\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE AND m.is_spam = FALSE AND m.draft = FALSE\n          ORDER BY x.uid ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -30886,6 +30902,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -33838,7 +33855,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -33878,6 +33895,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -33904,7 +33922,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE AND m.is_spam = FALSE AND m.draft = FALSE\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE AND m.is_spam = FALSE AND m.draft = FALSE\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -33944,6 +33962,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -36896,7 +36915,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -36936,6 +36955,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -36962,7 +36982,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -37002,6 +37022,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -39954,7 +39975,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -39994,6 +40015,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -40020,7 +40042,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -40060,6 +40082,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -43012,7 +43035,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -43052,6 +43075,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -43078,7 +43102,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -43118,6 +43142,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -46070,7 +46095,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -46110,6 +46135,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -46136,7 +46162,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -46176,6 +46202,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -49128,7 +49155,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -49168,6 +49195,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -49194,7 +49222,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -49234,6 +49262,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -52186,7 +52215,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -52226,6 +52255,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -52252,7 +52282,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -52292,6 +52322,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -55244,7 +55275,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -55284,6 +55315,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -55310,7 +55342,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -55350,6 +55382,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -58302,7 +58335,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -58342,6 +58375,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -58368,7 +58402,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -58408,6 +58442,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -61360,7 +61395,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -61400,6 +61435,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -61426,7 +61462,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -61466,6 +61502,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -64418,7 +64455,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2\n            AND x.uid >= $4 AND x.uid <= $5\n            AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -64458,6 +64495,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -64484,7 +64522,7 @@
      "*"
     ]
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -64524,6 +64562,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",
@@ -67476,7 +67515,7 @@
     ],
     "changedSince": 7
    },
-   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
+   "sql": "\n          SELECT m.mail_id, m.user_id, m.message_id, m.subject, m.date, m.html, m.text, m.from_address, m.from_text, m.to_address, m.to_text, m.cc_address, m.cc_text, m.bcc_address, m.bcc_text, m.reply_to_address, m.reply_to_text, m.envelope_from, m.envelope_to, m.attachments, m.read, m.saved, m.sent, m.deleted, m.draft, m.answered, m.expunged, m.insight, m.uid_domain, m.modseq, m.spam_score, m.spam_reasons, m.is_spam, m.rfc822_size, m.text_line_count, m.html_line_count, m.in_reply_to, m.reference_ids, m.ingested, m.updated, m.search_vector, x.uid AS uid_mailbox, octet_length(m.text) AS text_octets, octet_length(m.html) AS html_octets FROM mails m\n          JOIN mail_mailbox_uid x\n            ON x.user_id = m.user_id\n            AND x.mailbox = $3\n            AND x.mail_id = m.mail_id\n          WHERE m.user_id = $1 AND m.sent = $2 AND m.expunged = FALSE AND m.modseq > $6\n          ORDER BY x.uid ASC\n          OFFSET $4 LIMIT $5\n        ",
    "selectedFields": [
     "mail_id",
     "user_id",
@@ -67516,6 +67555,7 @@
     "html_line_count",
     "in_reply_to",
     "reference_ids",
+    "ingested",
     "updated",
     "search_vector",
     "uid_mailbox",

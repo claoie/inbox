@@ -224,7 +224,7 @@ fn opt_json(record: &Record, column: &str) -> Option<Value> {
 
 /// The type every field of a `mails` row must hold. `updated` and
 /// `search_vector` are part of the row though not of its JSON form.
-pub const MAIL_TYPE_CHECKER: [(&str, FieldType); 40] = [
+pub const MAIL_TYPE_CHECKER: [(&str, FieldType); 41] = [
     ("mail_id", FieldType::String),
     ("user_id", FieldType::String),
     ("message_id", FieldType::String),
@@ -266,6 +266,7 @@ pub const MAIL_TYPE_CHECKER: [(&str, FieldType); 40] = [
     // them, and threading treats a missing value as "no headers".
     ("in_reply_to", FieldType::OptionalNullableString),
     ("reference_ids", FieldType::OptionalNullableArray),
+    ("ingested", FieldType::OptionalNullableString),
     ("updated", FieldType::NullableString),
     ("search_vector", FieldType::NullableString),
 ];

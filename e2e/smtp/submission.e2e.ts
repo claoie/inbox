@@ -162,10 +162,10 @@ describe("a submission to an outside address", () => {
 
     const rows = await mailsOf(server, user.username);
     expect(rows).toHaveLength(1);
-    const { mail_id, updated, date, rfc822_size, search_vector, ...row } = rows[0]!;
+    const { mail_id, ingested, updated, date, rfc822_size, search_vector, ...row } = rows[0]!;
     expect(mail_id).toMatch(/^[0-9a-f-]{36}$/);
     // The time of sending, not the message's own Date header.
-    for (const stamp of [updated, date]) {
+    for (const stamp of [ingested, updated, date]) {
       expect(new Date(stamp).getTime()).toBeGreaterThanOrEqual(before - 1000);
       expect(new Date(stamp).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
     }

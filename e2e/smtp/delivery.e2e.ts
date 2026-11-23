@@ -83,10 +83,12 @@ describe("what one delivery stores", () => {
 
     const rows = await mailsOf(server, user.username);
     expect(rows).toHaveLength(1);
-    const { mail_id, updated, ...row } = rows[0]!;
+    const { mail_id, ingested, updated, ...row } = rows[0]!;
     expect(mail_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-    expect(new Date(updated).getTime()).toBeGreaterThanOrEqual(before - 1000);
-    expect(new Date(updated).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+    for (const stamp of [ingested, updated]) {
+      expect(new Date(stamp).getTime()).toBeGreaterThanOrEqual(before - 1000);
+      expect(new Date(stamp).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+    }
     expect(row).toEqual({
       user_id: user.id,
       message_id: "<first-1@remote.example>",
