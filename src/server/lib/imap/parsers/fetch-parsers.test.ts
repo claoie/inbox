@@ -1,7 +1,8 @@
 
 import { describe, it, expect } from "bun:test";
 import { parseCommand } from "./index";
-import type { FetchDataItem } from "../types";
+import { parseFetchDataItem } from "./fetch-parsers";
+import type { FetchDataItem, ParseContext } from "../types";
 
 function parseFetch(args: string) {
   const result = parseCommand(`A001 FETCH ${args}`);
@@ -289,5 +290,147 @@ describe("fetch-parsers > macros", () => {
     expect(parseFetch("1 BODY[]").dataItems.map((i) => i.type)).toEqual([
       "BODY",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseFetchDataItem (single item, direct)
+// ---------------------------------------------------------------------------
+
+describe("fetch-parsers > parseFetchDataItem", () => {
+  const ctx = (input: string): ParseContext => ({ input, position: 0, length: input.length });
+
+  const parseItem = (input: string) => {
+    const context = ctx(input);
+    return { result: parseFetchDataItem(context), position: context.position };
+  };
+
+  const simpleCases: [string, FetchDataItem][] = [
+    ["ENVELOPE", { type: "ENVELOPE" }],
+    ["FLAGS", { type: "FLAGS" }],
+    ["INTERNALDATE", { type: "INTERNALDATE" }],
+    ["RFC822", { type: "RFC822" }],
+    ["RFC822.HEADER", { type: "RFC822.HEADER" }],
+    ["RFC822.SIZE", { type: "RFC822.SIZE" }],
+    ["RFC822.TEXT", { type: "RFC822.TEXT" }],
+    ["UID", { type: "UID" }],
+    ["MODSEQ", { type: "MODSEQ" }],
+    ["BODYSTRUCTURE", { type: "BODYSTRUCTURE", extensible: true }],
+  ];
+
+  for (const [atom, expected] of simpleCases) {
+    it(`maps ${atom} and stops at the following space`, () => {
+      const { result, position } = parseItem(`${atom} UID`);
+      expect(result.success).toBe(true);
+      expect(result.value).toEqual(expected);
+      expect(result.consumed).toBe(atom.length);
+      expect(position).toBe(atom.length);
+    });
+  }
+
+  it("matches atoms case-insensitively", () => {
+    const { result } = parseItem("rfc822.size");
+    expect(result.value).toEqual({ type: "RFC822.SIZE" });
+  });
+
+  it("maps bare BODY to the non-extensible BODYSTRUCTURE", () => {
+    const { result, position } = parseItem("BODY");
+    expect(result.success).toBe(true);
+    expect(result.value).toEqual({ type: "BODYSTRUCTURE", extensible: false });
+    expect(position).toBe(4);
+  });
+
+  const bodyCases: [string, FetchDataItem][] = [
+    ["BODY[]", { type: "BODY", peek: false, section: { type: "FULL" }, partial: undefined }],
+    ["BODY.PEEK[]", { type: "BODY", peek: true, section: { type: "FULL" }, partial: undefined }],
+    ["BODY[HEADER]", { type: "BODY", peek: false, section: { type: "HEADER" }, partial: undefined }],
+    ["BODY.PEEK[TEXT]", { type: "BODY", peek: true, section: { type: "TEXT" }, partial: undefined }],
+    [
+      "BODY[1.2]",
+      { type: "BODY", peek: false, section: { type: "MIME_PART", partNumber: "1.2" }, partial: undefined },
+    ],
+    [
+      "BODY.PEEK[2.mime]",
+      {
+        type: "BODY",
+        peek: true,
+        section: { type: "MIME_PART", partNumber: "2", subSection: "MIME" },
+        partial: undefined,
+      },
+    ],
+    [
+      "BODY[]<0.1024>",
+      { type: "BODY", peek: false, section: { type: "FULL" }, partial: { start: 0, length: 1024 } },
+    ],
+    [
+      "BODY.PEEK[1]<512.64>",
+      {
+        type: "BODY",
+        peek: true,
+        section: { type: "MIME_PART", partNumber: "1" },
+        partial: { start: 512, length: 64 },
+      },
+    ],
+  ];
+
+  for (const [expr, expected] of bodyCases) {
+    it(`parses ${expr} and leaves the cursor after it`, () => {
+      const { result, position } = parseItem(`${expr} UID`);
+      expect(result.success).toBe(true);
+      expect(result.value).toEqual(expected);
+      expect(position).toBe(expr.length);
+    });
+  }
+
+  it("reads a HEADER.FIELDS list past the space the atom stops at", () => {
+    const expr = "BODY.PEEK[HEADER.FIELDS (From To Subject)]";
+    const { result, position } = parseItem(`${expr} FLAGS`);
+    expect(result.success).toBe(true);
+    expect(result.value).toEqual({
+      type: "BODY",
+      peek: true,
+      section: { type: "HEADER_FIELDS", not: false, fields: ["FROM", "TO", "SUBJECT"] },
+      partial: undefined,
+    });
+    expect(position).toBe(expr.length);
+  });
+
+  it("reads a HEADER.FIELDS.NOT list with a trailing partial range", () => {
+    const expr = "BODY[HEADER.FIELDS.NOT (DATE)]<10.20>";
+    const { result, position } = parseItem(expr);
+    expect(result.success).toBe(true);
+    expect(result.value).toEqual({
+      type: "BODY",
+      peek: false,
+      section: { type: "HEADER_FIELDS", not: true, fields: ["DATE"] },
+      partial: { start: 10, length: 20 },
+    });
+    expect(position).toBe(expr.length);
+  });
+
+  const rejected: [string, string][] = [
+    ["BOGUS", "Unknown fetch data item: BOGUS"],
+    ["BODYFOO", "Unknown fetch data item: BODYFOO"],
+    ["BODY[FOO]", "Unknown fetch data item: BODY[FOO]"],
+    ["BODY[1.FOO]", "Unknown fetch data item: BODY[1.FOO]"],
+  ];
+
+  for (const [input, error] of rejected) {
+    it(`rejects ${input}`, () => {
+      const { result } = parseItem(input);
+      expect(result.success).toBe(false);
+      expect(result.value).toBeUndefined();
+      expect(result.error).toBe(error);
+      expect(result.consumed).toBe(0);
+    });
+  }
+
+  it("rejects input that does not start with an atom", () => {
+    for (const input of ["", "(FLAGS)", " FLAGS"]) {
+      const { result, position } = parseItem(input);
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Expected fetch data item");
+      expect(position).toBe(0);
+    }
   });
 });
