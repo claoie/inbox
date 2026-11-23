@@ -523,9 +523,10 @@ export const buildUnreadNotificationsQuery = (
       SELECT 
         user_id,
         COUNT(*) FILTER (WHERE read = FALSE) as unread_count,
-        -- updated, not date: date is the sender's Date header, so a backdated
-        -- mail would never cross the push gate's wall-clock lastNotified.
-        MAX(updated) as latest
+        -- ingested, not date or updated: date is the sender's Date header, so a
+        -- backdated mail would never cross the push gate's wall-clock
+        -- lastNotified; updated moves on every read, flag or spam write.
+        MAX(ingested) as latest
       FROM mails
       -- draft = FALSE: a user's own unsent draft must not ring the new-mail
       -- push badge. Mirrors getMailHeaders / getAccountStats so the badge count

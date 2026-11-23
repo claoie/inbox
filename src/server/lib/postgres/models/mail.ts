@@ -39,6 +39,7 @@ import {
   HTML_LINE_COUNT,
   IN_REPLY_TO,
   REFERENCE_IDS,
+  INGESTED,
 } from "./common";
 import { Model, ModelValidationError, createTable, validateObject } from "./base";
 
@@ -150,6 +151,10 @@ const mailSchema = {
   // the thread lookup falls back to subject and participants for them.
   [IN_REPLY_TO]: "VARCHAR(512)",
   [REFERENCE_IDS]: "JSONB",
+  // When the server stored the row. Insert-only: no write path sets it, unlike
+  // `updated`, which every flag or spam write restamps. Rows that predate the
+  // column carry the migration's timestamp.
+  [INGESTED]: "TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP",
   [UPDATED]: "TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP",
   search_vector: "TSVECTOR",
 };
@@ -195,6 +200,7 @@ export class MailModel extends Model<MailJSON, MailSchema> {
   declare html_line_count: number | null;
   declare in_reply_to: string | null;
   declare reference_ids: string[] | null;
+  declare ingested: string;
   declare updated: string;
 
   static typeChecker = {
@@ -244,6 +250,8 @@ export class MailModel extends Model<MailJSON, MailSchema> {
       v === undefined || isNullableString(v),
     reference_ids: (v: unknown): v is unknown[] | null | undefined =>
       v === undefined || isNullableArray(v),
+    ingested: (v: unknown): v is string | null | undefined =>
+      v === undefined || isNullableString(v),
     updated: isNullableString,
     search_vector: isNullableString,
   };

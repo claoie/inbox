@@ -90,6 +90,7 @@ export const TEXT_LINE_COUNT = "text_line_count";
 export const HTML_LINE_COUNT = "html_line_count";
 export const IN_REPLY_TO = "in_reply_to";
 export const REFERENCE_IDS = "reference_ids";
+export const INGESTED = "ingested";
 
 // Sessions columns
 export const SESSION_ID = "session_id";
