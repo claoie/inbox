@@ -415,7 +415,8 @@ fn io_error(error: ssl::Error) -> io::Error {
 fn system_errno(error: &openssl::error::Error) -> Option<i32> {
     const SYSTEM_FLAG: std::ffi::c_ulong = 1 << 31;
     let code = error.code();
-    (code & SYSTEM_FLAG != 0).then(|| (code & !SYSTEM_FLAG) as i32)
+    // A transport error that no system call raised is pushed with errno 0.
+    (code & SYSTEM_FLAG != 0).then(|| (code & !SYSTEM_FLAG) as i32).filter(|&errno| errno != 0)
 }
 
 /// The same, for an error the OpenSSL stream already made an `io::Error`.
@@ -574,6 +575,20 @@ mod tests {
             "{:?}: {error}",
             error.kind()
         );
+    }
+
+    #[tokio::test]
+    async fn a_transport_error_no_system_call_raised_stays_a_tls_error() {
+        let acceptor = rsa_acceptor();
+        let (server_io, client_io) = tokio::io::duplex(1 << 16);
+        let mut peer = connecting(&client(|_| {}), client_io);
+        let (server, connected) = tokio::join!(acceptor.accept(server_io), Pin::new(&mut peer).connect());
+        connected.unwrap();
+        let mut server = server.unwrap();
+        drop(peer);
+        let error = server.write_all(b"* OK\r\n").await.expect_err("the other half is gone");
+        assert_eq!(error.raw_os_error(), None, "{error}");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{error}");
     }
 
     #[tokio::test]
