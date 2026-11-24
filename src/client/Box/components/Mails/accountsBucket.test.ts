@@ -10,7 +10,8 @@ import {
   removeAccountFromBucket,
   updateAccountInBucket,
   updateAccountInBuckets,
-  wholeBucketForCategory
+  wholeBucketForCategory,
+  withoutUnreadMail
 } from "./accountsBucket";
 
 const makeAccount = (key: string, doc = 5, unread = 2, saved = 1) =>
@@ -22,10 +23,14 @@ const makeAccount = (key: string, doc = 5, unread = 2, saved = 1) =>
     saved_doc_count: saved
   });
 
+// me and other hold 2 unread each, and one unread mail names both of them:
+// 4 address rows, 3 unread mails.
 const data = () => ({
   received: [makeAccount("me@x.com"), makeAccount("other@x.com")],
   sent: [makeAccount("me@x.com")],
-  spam: [makeAccount("spammy@x.com")]
+  spam: [makeAccount("spammy@x.com")],
+  shared: [],
+  unread_mail_count: 3
 });
 
 const addresses = (...values: string[]) => ({
@@ -499,11 +504,66 @@ describe("accountForMail", () => {
 });
 
 describe("allAccountsCount", () => {
-  it("sums unread across every receiving account", () => {
-    expect(allAccountsCount(data())).toEqual({ count: 4, noun: "unread" });
+  it("counts each unread mail once, not once per account it names", () => {
+    expect(allAccountsCount(data())).toEqual({ count: 3, noun: "unread" });
   });
 
   it("returns null before the accounts payload loads", () => {
     expect(allAccountsCount(undefined)).toBeNull();
+  });
+});
+
+describe("withoutUnreadMail", () => {
+  const unreadMail = () =>
+    mail({ id: "m1", read: false, sent: false, to: addresses("me@x.com", "other@x.com") });
+
+  it("takes an unread received mail off the count once, whatever it names", () => {
+    expect(
+      withoutUnreadMail(data(), unreadMail(), Category.AllMails, "me@x.com")
+        .unread_mail_count
+    ).toBe(2);
+  });
+
+  it("leaves the count alone for a mail it never held", () => {
+    const cases: [MailHeaderData, Category][] = [
+      [mail({ ...unreadMail(), read: true }), Category.AllMails],
+      [mail({ ...unreadMail(), sent: true }), Category.SentMails],
+      [mail({ ...unreadMail(), spam: true }), Category.AllMails],
+      [unreadMail(), Category.SpamMails]
+    ];
+    for (const [m, category] of cases) {
+      expect(
+        withoutUnreadMail(data(), m, category, "me@x.com").unread_mail_count
+      ).toBe(3);
+    }
+  });
+
+  it("leaves the count alone for a mail of a domain the user only views", () => {
+    const viewed = {
+      ...data(),
+      shared: [
+        {
+          domain: "team.example",
+          owner: "owner",
+          received: [makeAccount("ops@team.example")],
+          sent: []
+        }
+      ]
+    };
+    expect(
+      withoutUnreadMail(viewed, unreadMail(), Category.AllMails, "ops@team.example")
+        .unread_mail_count
+    ).toBe(3);
+  });
+
+  it("never goes below zero", () => {
+    expect(
+      withoutUnreadMail(
+        { ...data(), unread_mail_count: 0 },
+        unreadMail(),
+        Category.AllMails,
+        "me@x.com"
+      ).unread_mail_count
+    ).toBe(0);
   });
 });

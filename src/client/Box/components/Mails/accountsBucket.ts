@@ -1,6 +1,7 @@
 import { Account, MailAddressType, MailHeaderData } from "common";
 import { AccountsGetResponse } from "server";
 import { Category } from "client";
+import { sharedAccountKeys } from "client/Box/components/Accounts/sharedAccounts";
 
 export type AccountsBucket = "received" | "sent" | "spam";
 
@@ -178,20 +179,38 @@ export const accountCountForCategory = (
 };
 
 /**
- * The unified list header's count (design doc §5): unread across every
- * receiving account, summed from the accounts payload already in hand —
- * the same unread total the header pill carries. Returns `null` when the
- * accounts payload has not loaded yet, so the header renders the view name
- * alone instead of a stale zero.
+ * The unified list header's count (design doc §5): the user's unread mail,
+ * once per message — the same total the header pill and the app badge carry.
+ * Not a sum of the accounts' unread counts, which counts a mail once per own
+ * address it names. Returns `null` when the accounts payload has not loaded
+ * yet, so the header renders the view name alone instead of a stale zero.
  */
 export const allAccountsCount = (
   data: AccountsGetResponse | undefined
 ): { count: number; noun: "unread" } | null => {
   if (!data) return null;
-  return {
-    count: data.received.reduce((acc, a) => acc + a.unread_doc_count, 0),
-    noun: "unread",
-  };
+  return { count: data.unread_mail_count, noun: "unread" };
+};
+
+/**
+ * Takes `mail` off `unread_mail_count` when it leaves the unread state or the
+ * list: only an unread mail the count holds — received, not spam, on one of
+ * the user's own accounts rather than a domain they view.
+ */
+export const withoutUnreadMail = (
+  data: AccountsGetResponse,
+  mail: MailHeaderData,
+  category: Category,
+  accountKey: string
+): AccountsGetResponse => {
+  const counted =
+    !mail.read &&
+    !mail.sent &&
+    !mail.spam &&
+    category !== Category.SpamMails &&
+    !sharedAccountKeys(data).has(accountKey);
+  if (!counted) return data;
+  return { ...data, unread_mail_count: Math.max(0, data.unread_mail_count - 1) };
 };
 
 /**

@@ -1,6 +1,7 @@
 import { Account, SignedUser } from "common";
 import {
   getAccountStats,
+  getUnreadNotifications,
   searchAccountStats,
 } from "../postgres/repositories/mails";
 import {
@@ -21,6 +22,13 @@ export interface AccountsGetResponse {
    * user's own.
    */
   shared: SharedDomainAccounts[];
+  /**
+   * The user's own unread mail, counted once per message. Summing the
+   * accounts' `unread_doc_count` counts a mail once per own address it names,
+   * so the app badge and the all-accounts totals read this instead. It is the
+   * count the new-mail push sends as its badge, from the same query.
+   */
+  unread_mail_count: number;
 }
 
 export interface SharedDomainAccounts {
@@ -93,11 +101,12 @@ export const getAccounts = async (
   const own = await ownAccountDomains(user.id, access);
   const viewed = access.filter((domain) => domain.role === "viewer");
 
-  const [receivedStats, sentStats, spamStats, shared] = await Promise.all([
+  const [receivedStats, sentStats, spamStats, shared, unread] = await Promise.all([
     getAccountStats(user.id, false, own),
     getAccountStats(user.id, true, own),
     getAccountStats(user.id, false, own, true),
     sharedAccounts(viewed),
+    getUnreadNotifications([user.id]),
   ]);
 
   return {
@@ -105,6 +114,7 @@ export const getAccounts = async (
     sent: sentStats.map(toAccount),
     spam: spamStats.map(toAccount),
     shared,
+    unread_mail_count: unread.get(user.id)?.count ?? 0,
   };
 };
 

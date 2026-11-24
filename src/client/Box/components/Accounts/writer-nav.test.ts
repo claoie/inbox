@@ -60,7 +60,9 @@ const accountsPayload = {
       unread_doc_count: 2,
       saved_doc_count: 0
     })
-  ]
+  ],
+  // One of maple's unread mails also names fern: 3 + 1 address rows, 3 mails.
+  unread_mail_count: 3
 };
 
 let originalGet: typeof call.get;
@@ -372,15 +374,15 @@ describe("Settings page", () => {
     expect(open.clicked).toEqual(["Settings"]);
     expect(open.selectedTabs).toEqual([]);
     expect(open.settingsPressed).toBe("true");
-    expect(open.newBadge).toBe("4");
+    expect(open.newBadge).toBe("3");
 
     // The current folder keeps its count too: badges never come and go as
     // the reader moves between folders. (textContent is label + badge.)
     const closed = await railState(false);
-    expect(closed.clicked).toEqual(["All4"]);
-    expect(closed.selectedTabs).toEqual(["All4"]);
+    expect(closed.clicked).toEqual(["All3"]);
+    expect(closed.selectedTabs).toEqual(["All3"]);
     expect(closed.settingsPressed).toBe("false");
-    expect(closed.newBadge).toBe("4");
+    expect(closed.newBadge).toBe("3");
   });
 
   it("opening it closes the writer", async () => {
@@ -545,9 +547,8 @@ describe("Folder tabs show numeric unread counts", () => {
     }
   };
 
-  it("All shows the received unread total", async () => {
-    // Received unread: maple 3 + fern 1 = 4.
-    expect(await badgeFor("All")).toBe("4");
+  it("All shows the unread mail count, not the per-account sum", async () => {
+    expect(await badgeFor("All")).toBe("3");
   });
 
   it("Sent and Spam show their own unread totals", async () => {

@@ -141,13 +141,7 @@ const Accounts = ({
   };
 
   const onSuccess = (data: AccountsGetResponse) => {
-    // The badge counts the user's own new mail, not the domains they view.
-    const shared = sharedAccountKeys(data);
-    const newMails = data.received
-      .filter((e) => !shared.has(e.key))
-      .reduce((acc, e) => acc + e.unread_doc_count, 0);
-
-    setNewMailsTotal(newMails);
+    setNewMailsTotal(data.unread_mail_count);
 
     if (!isFetched) {
       const sync = new MailsSynchronizer(

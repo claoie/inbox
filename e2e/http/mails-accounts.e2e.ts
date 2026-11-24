@@ -16,7 +16,9 @@ const accounts = async (box: Mailbox) => {
   const { status, body } = await box.client.get("/api/mails/accounts");
   expect(status).toBe(200);
   expect(body.status).toBe("success");
-  return body.body as Record<"received" | "sent" | "spam" | "shared", Record<string, unknown>[]>;
+  return body.body as Record<"received" | "sent" | "spam" | "shared", Record<string, unknown>[]> & {
+    unread_mail_count: number;
+  };
 };
 
 const account = (key: string, doc: number, unread: number, saved: number, updated: string) => ({
@@ -72,14 +74,14 @@ describe("GET /api/mails/domain", () => {
 });
 
 describe("GET /api/mails/accounts", () => {
-  test("is three empty lists for a user with no mail, with an exact body", async () => {
+  test("is three empty lists and no unread mail for a user with no mail, with an exact body", async () => {
     const box = await newMailbox(server);
     const { status, text, headers } = await box.client.get("/api/mails/accounts");
     expect(status).toBe(200);
-    expect(text).toBe('{"status":"success","body":{"received":[],"sent":[],"spam":[],"shared":[]}}');
+    expect(text).toBe('{"status":"success","body":{"received":[],"sent":[],"spam":[],"shared":[],"unread_mail_count":0}}');
     expect(headers.get("content-type")).toBe(JSON_TYPE);
-    expect(headers.get("etag")).toBe('W/"4b-L76WzPuP2aW6Uso9NmaEMB1Hl+8"');
-    expect(headers.get("content-length")).toBe("75");
+    expect(headers.get("etag")).toBe('W/"61-HGIG4o6FKy+I9Z4IfHn4zU6L10Q"');
+    expect(headers.get("content-length")).toBe("97");
   });
 
   test("lists one received account with its key order", async () => {
@@ -88,7 +90,7 @@ describe("GET /api/mails/accounts", () => {
     const { text } = await box.client.get("/api/mails/accounts");
     expect(text).toBe(
       `{"status":"success","body":{"received":[{"key":"${box.address()}","doc_count":1,"unread_doc_count":1,` +
-        `"saved_doc_count":0,"updated":"2026-03-04T05:06:07.891Z"}],"sent":[],"spam":[],"shared":[]}}`
+        `"saved_doc_count":0,"updated":"2026-03-04T05:06:07.891Z"}],"sent":[],"spam":[],"shared":[],"unread_mail_count":1}}`
     );
   });
 
@@ -114,6 +116,7 @@ describe("GET /api/mails/accounts", () => {
       sent: [],
       spam: [],
       shared: [],
+      unread_mail_count: 2,
     });
   });
 
@@ -222,6 +225,8 @@ describe("GET /api/mails/accounts", () => {
       sent: [account(me, 2, 1, 1, "2026-03-02T00:00:00.000Z")],
       spam: [],
       shared: [],
+      // The row not flagged sent is unread mail, whoever its From names.
+      unread_mail_count: 1,
     });
   });
 
@@ -234,6 +239,7 @@ describe("GET /api/mails/accounts", () => {
       sent: [account(me, 1, 0, 0, "2026-03-01T00:00:00.000Z")],
       spam: [],
       shared: [],
+      unread_mail_count: 0,
     });
   });
 
@@ -250,6 +256,7 @@ describe("GET /api/mails/accounts", () => {
       sent: [],
       spam: [account(me, 2, 1, 1, "2026-04-03T00:00:00.000Z")],
       shared: [],
+      unread_mail_count: 1,
     });
   });
 
@@ -262,7 +269,7 @@ describe("GET /api/mails/accounts", () => {
     await box.mail({ from: [addr(me)], to: [addr("x@remote.example")], envelope_to: [], sent: true, expunged: true });
     await box.mail({ is_spam: true, expunged: true });
     await box.mail({ is_spam: true, draft: true });
-    expect(await accounts(box)).toEqual({ received: [], sent: [], spam: [], shared: [] });
+    expect(await accounts(box)).toEqual({ received: [], sent: [], spam: [], shared: [], unread_mail_count: 0 });
     await box.mail({ deleted: true, answered: true, date: "2026-04-01T00:00:00Z" });
     expect((await accounts(box)).received).toEqual([account(me, 1, 1, 0, "2026-04-01T00:00:00.000Z")]);
   });
@@ -283,6 +290,8 @@ describe("GET /api/mails/accounts", () => {
       sent: [],
       spam: [],
       shared: [],
+      // No account, but all three are unread received mail.
+      unread_mail_count: 3,
     });
   });
 
@@ -303,8 +312,43 @@ describe("GET /api/mails/accounts", () => {
     const second = await newMailbox(server);
     // Stored under the second user, but naming the first user's address.
     await second.mail({ to: [addr(first.address()), addr(second.address())], date: "2026-04-01T00:00:00Z" });
-    expect(await accounts(first)).toEqual({ received: [], sent: [], spam: [], shared: [] });
+    expect(await accounts(first)).toEqual({ received: [], sent: [], spam: [], shared: [], unread_mail_count: 0 });
     expect((await accounts(second)).received).toEqual([account(second.address(), 1, 1, 0, "2026-04-01T00:00:00.000Z")]);
+  });
+
+  test("the unread mail count counts each message once, however many own addresses it names", async () => {
+    const box = await newMailbox(server);
+    const a = box.address("a");
+    const b = box.address("b");
+    await box.mail({ to: [addr(a), addr(b)], cc: [addr(box.address("c"))], envelope_to: [{ address: box.address("d") }] });
+    await box.mail({ to: [addr(a)] });
+    await box.mail({ to: [addr(b)], read: true });
+    const body = await accounts(box);
+    expect(body.received.reduce((sum, account) => sum + (account.unread_doc_count as number), 0)).toBe(5);
+    expect(body.unread_mail_count).toBe(2);
+  });
+
+  test("the unread mail count is the new-mail push badge's: received, not spam, sent, draft or expunged", async () => {
+    const box = await newMailbox(server);
+    const me = box.address();
+    await box.mail({});
+    await box.mail({ from: [addr(me)], to: [addr(me)], sent: true });
+    await box.mail({ is_spam: true });
+    await box.mail({ draft: true });
+    await box.mail({ expunged: true });
+    // A received mail naming none of the user's addresses: no account, still new mail.
+    await box.mail({ to: [addr("list@remote.example")], envelope_to: [] });
+    const body = await accounts(box);
+    expect(body.received).toEqual([account(me, 2, 2, 0, body.received[0]!.updated as string)]);
+    expect(body.unread_mail_count).toBe(2);
+  });
+
+  test("the unread mail count is the user's own: another user's mail never adds to it", async () => {
+    const first = await newMailbox(server);
+    const second = await newMailbox(server);
+    await second.mail({ to: [addr(first.address()), addr(second.address())] });
+    expect((await accounts(first)).unread_mail_count).toBe(0);
+    expect((await accounts(second)).unread_mail_count).toBe(1);
   });
 
   test("the account date keeps milliseconds and is in UTC", async () => {

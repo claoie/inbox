@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use crate::domains::domain_of_address;
 use crate::js;
+use crate::mails::notifications::get_unread_notifications;
 use crate::models::SignedUser;
 use crate::postgres::repositories::domains::{list_domain_access, list_former_domains, DomainAccess, DomainRole};
 use crate::postgres::repositories::mails::http::{get_account_stats, search_account_stats, AccountStat};
@@ -45,13 +46,16 @@ pub struct SharedDomainAccounts {
 }
 
 /// Received, sent and spam accounts, each newest first, then the domains the
-/// user views.
+/// user views, then the user's own unread mail counted once per message.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Accounts {
     pub received: Vec<Account>,
     pub sent: Vec<Account>,
     pub spam: Vec<Account>,
     pub shared: Vec<SharedDomainAccounts>,
+    /// Summing `unread_doc_count` counts a mail once per own address it names;
+    /// this is the push badge's per-message count, from the same query.
+    pub unread_mail_count: i64,
 }
 
 /// The addresses the user's own rows hold mail for: those on the domains they
@@ -108,17 +112,20 @@ pub async fn get_accounts(user: &SignedUser) -> DbResult<Accounts> {
     let access = list_domain_access(&user.id).await?;
     let own = own_account_domains(&user.id, &access).await?;
     let viewed: Vec<DomainAccess> = access.into_iter().filter(|domain| domain.role == DomainRole::Viewer).collect();
-    let (received, sent, spam, shared) = tokio::join!(
+    let user_ids = [user.id.clone()];
+    let (received, sent, spam, shared, unread) = tokio::join!(
         get_account_stats(&user.id, false, Some(&own), false, None),
         get_account_stats(&user.id, true, Some(&own), false, None),
         get_account_stats(&user.id, false, Some(&own), true, None),
         shared_accounts(&viewed),
+        get_unread_notifications(&user_ids),
     );
     Ok(Accounts {
         received: received.into_iter().map(Account::from).collect(),
         sent: sent.into_iter().map(Account::from).collect(),
         spam: spam.into_iter().map(Account::from).collect(),
         shared,
+        unread_mail_count: unread.get(&user.id).map_or(0, |badge| badge.count),
     })
 }
 
@@ -153,10 +160,10 @@ mod tests {
     }
 
     #[test]
-    fn the_accounts_carry_the_shared_list_last() {
+    fn the_accounts_carry_the_shared_list_then_the_unread_mail_count() {
         assert_eq!(
             serde_json::to_string(&Accounts::default()).unwrap(),
-            r#"{"received":[],"sent":[],"spam":[],"shared":[]}"#
+            r#"{"received":[],"sent":[],"spam":[],"shared":[],"unread_mail_count":0}"#
         );
     }
 }

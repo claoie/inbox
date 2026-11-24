@@ -6,6 +6,7 @@ export interface AccountsGetResponse {
   received: Account[];
   sent: Account[];
   spam: Account[];
+  unread_mail_count: number;
 }
 
 export const getAccountsRoute = new Route<AccountsGetResponse>(

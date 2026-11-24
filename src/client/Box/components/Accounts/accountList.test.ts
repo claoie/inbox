@@ -101,17 +101,20 @@ describe("accountBadgeCount", () => {
 });
 
 describe("folderBadgeCounts", () => {
-  it("sums the badge rule over each folder's bucket", () => {
+  it("sums the badge rule over each folder's bucket, and All counts mails", () => {
     const data = {
       received: [
         makeAccount("maple@x.com", 2, 1),
         makeAccount("fern@x.com", 1, 0)
       ],
       sent: [makeAccount("maple@x.com", 1, 0)],
-      spam: [makeAccount("spam@x.com", 3, 0)]
+      spam: [makeAccount("spam@x.com", 3, 0)],
+      shared: [],
+      // One unread mail names both maple and fern.
+      unread_mail_count: 2
     };
     expect(folderBadgeCounts(data)).toEqual({
-      [Category.AllMails]: 3,
+      [Category.AllMails]: 2,
       [Category.SavedMails]: 1,
       [Category.SentMails]: 1,
       [Category.SpamMails]: 3

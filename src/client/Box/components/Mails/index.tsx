@@ -94,7 +94,8 @@ import {
   allAccountsCount,
   bucketsForMail,
   evictAccountFromCategory,
-  updateAccountInBuckets
+  updateAccountInBuckets,
+  withoutUnreadMail
 } from "./accountsBucket";
 
 import "./index.scss";
@@ -280,17 +281,22 @@ const RenderedMail = ({
       if (!oldData) return oldData;
       return removed.reduce((oldData, mail) => {
         const mailAccount = resolveMailAccount(mail);
-        return updateAccountInBuckets(
-          oldData,
-          bucketsForMail(selectedCategory, mail, mailAccount),
-          mailAccount,
-          ({ doc_count, unread_doc_count }) => ({
-            doc_count: doc_count - 1,
-            unread_doc_count:
-              !mail.read && unread_doc_count
-                ? unread_doc_count - 1
-                : unread_doc_count
-          })
+        return withoutUnreadMail(
+          updateAccountInBuckets(
+            oldData,
+            bucketsForMail(selectedCategory, mail, mailAccount),
+            mailAccount,
+            ({ doc_count, unread_doc_count }) => ({
+              doc_count: doc_count - 1,
+              unread_doc_count:
+                !mail.read && unread_doc_count
+                  ? unread_doc_count - 1
+                  : unread_doc_count
+            })
+          ),
+          mail,
+          selectedCategory,
+          mailAccount
         );
       }, oldData);
     });
@@ -824,13 +830,18 @@ const RenderedMails = ({
 
     accountsCache.set((oldData) => {
       if (!oldData) return oldData;
-      return updateAccountInBuckets(
-        oldData,
-        bucketsForMail(selectedCategory, mail, mailAccount),
-        mailAccount,
-        ({ unread_doc_count }) => ({
-          unread_doc_count: unread_doc_count ? unread_doc_count - 1 : 0
-        })
+      return withoutUnreadMail(
+        updateAccountInBuckets(
+          oldData,
+          bucketsForMail(selectedCategory, mail, mailAccount),
+          mailAccount,
+          ({ unread_doc_count }) => ({
+            unread_doc_count: unread_doc_count ? unread_doc_count - 1 : 0
+          })
+        ),
+        mail,
+        selectedCategory,
+        mailAccount
       );
     });
   };

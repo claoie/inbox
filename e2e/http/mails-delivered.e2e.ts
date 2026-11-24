@@ -87,6 +87,7 @@ describe("a plain-text delivery", () => {
       sent: [],
       spam: [],
       shared: [],
+      unread_mail_count: 1,
     });
   });
 
@@ -446,7 +447,7 @@ describe("delivered mail and the write routes", () => {
     expect(subjects((await box.client.get(`/api/mails/headers/${box.address()}?spam=1`)).body.body)).toEqual(["Writable"]);
     expect((await box.client.delete(`/api/mails/${row.mail_id}`)).body).toEqual({ status: "success" });
     expect(await readMail(server, row.mail_id)).toBeUndefined();
-    expect((await box.client.get("/api/mails/accounts")).body.body).toEqual({ received: [], sent: [], spam: [], shared: [] });
+    expect((await box.client.get("/api/mails/accounts")).body.body).toEqual({ received: [], sent: [], spam: [], shared: [], unread_mail_count: 0 });
   });
 });
 

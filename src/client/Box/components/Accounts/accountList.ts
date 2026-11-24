@@ -61,8 +61,8 @@ export const accountBadgeCount = (
  * doc §4, option A): the same per-account rule as `accountBadgeCount` —
  * saved for Saved, unread everywhere else — summed over the bucket each
  * folder draws from. Reads the accounts payload already in hand; no extra
- * fetch. All draws its unread total from `received`, matching the list
- * header's "unread" noun.
+ * fetch. All carries the payload's per-message unread count instead: summed
+ * over `received`, a mail naming several own addresses counts once for each.
  */
 export const folderBadgeCounts = (
   data: AccountsGetResponse | undefined
@@ -79,9 +79,8 @@ export const folderBadgeCounts = (
   const received = data?.received ?? [];
   const sent = data?.sent ?? [];
   const spam = data?.spam ?? [];
-  const unreadReceived = sum(received, "unread_doc_count");
   return {
-    [Category.AllMails]: unreadReceived,
+    [Category.AllMails]: data?.unread_mail_count ?? 0,
     [Category.SavedMails]: sum(received, "saved_doc_count"),
     [Category.SentMails]: sum(sent, "unread_doc_count"),
     [Category.SpamMails]: sum(spam, "unread_doc_count")

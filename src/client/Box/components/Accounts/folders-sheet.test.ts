@@ -60,7 +60,9 @@ const accountsPayload = {
       unread_doc_count: 3,
       saved_doc_count: 0
     })
-  ]
+  ],
+  // One of maple's unread mails also names fern: 2 + 1 address rows, 2 mails.
+  unread_mail_count: 2
 };
 
 let originalGet: typeof call.get;
@@ -270,7 +272,7 @@ describe("Folders entry opens the sheet", () => {
           row.querySelector(".numberBall")?.textContent
         ])
       );
-      expect(byLabel.get("All Mails")).toBe("3");
+      expect(byLabel.get("All Mails")).toBe("2");
       expect(byLabel.get("Saved Mails")).toBe("1");
       expect(byLabel.get("Sent Mails")).toBe("1");
       expect(byLabel.get("Spam Mails")).toBe("3");

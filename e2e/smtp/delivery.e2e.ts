@@ -747,6 +747,7 @@ describe("what the HTTP API shows afterwards", () => {
         sent: [],
         spam: [],
         shared: [],
+        unread_mail_count: 1,
       },
     });
 
