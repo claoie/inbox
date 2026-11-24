@@ -394,6 +394,9 @@ impl std::error::Error for TlsError {}
 /// reads as the end of the stream.
 fn io_error(error: ssl::Error) -> io::Error {
     let first = error.ssl_error().and_then(|stack| stack.errors().first().cloned());
+    if let Some(errno) = first.as_ref().and_then(system_errno) {
+        return io::Error::from_raw_os_error(errno);
+    }
     if (error.code() == ErrorCode::SYSCALL && error.io_error().is_none() && first.is_none())
         || first.as_ref().is_some_and(|first| first.reason_code() == UNEXPECTED_EOF_WHILE_READING)
     {
@@ -404,6 +407,15 @@ fn io_error(error: ssl::Error) -> io::Error {
         return io::Error::new(io::ErrorKind::InvalidData, TlsError { reason, message: first.to_string() });
     }
     error.into_io_error().unwrap_or_else(io::Error::other)
+}
+
+/// The errno of a failed system call that OpenSSL 3 put on its error stack: it
+/// sets the code's top bit and keeps the errno below it. Read as that OS error, a
+/// peer that went away mid-write is a broken pipe or a reset, not a TLS fault.
+fn system_errno(error: &openssl::error::Error) -> Option<i32> {
+    const SYSTEM_FLAG: std::ffi::c_ulong = 1 << 31;
+    let code = error.code();
+    (code & SYSTEM_FLAG != 0).then(|| (code & !SYSTEM_FLAG) as i32)
 }
 
 /// The same, for an error the OpenSSL stream already made an `io::Error`.
@@ -531,6 +543,37 @@ mod tests {
 
     fn tls_error(error: &io::Error) -> &TlsError {
         error.get_ref().and_then(|inner| inner.downcast_ref::<TlsError>()).expect("a TLS-layer error")
+    }
+
+    #[tokio::test]
+    async fn a_write_to_a_client_that_hung_up_fails_as_the_os_error() {
+        let acceptor = rsa_acceptor();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let connector = client(|_| {});
+        let hang_up = tokio::spawn(async move {
+            let tcp = tokio::net::TcpStream::connect(address).await.unwrap();
+            let ssl = connector.configure().unwrap().verify_hostname(false).into_ssl("localhost").unwrap();
+            let mut stream = tokio_openssl::SslStream::new(ssl, tcp).unwrap();
+            Pin::new(&mut stream).connect().await.unwrap();
+        });
+        let (tcp, _) = listener.accept().await.unwrap();
+        let mut server = acceptor.accept(tcp).await.unwrap();
+        hang_up.await.unwrap();
+        let mut failed = None;
+        for _ in 0..200 {
+            if let Err(error) = server.write_all(&[b'.'; 4096]).await {
+                failed = Some(error);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        let error = failed.expect("writing to a closed connection fails");
+        assert!(
+            matches!(error.kind(), io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset),
+            "{:?}: {error}",
+            error.kind()
+        );
     }
 
     #[tokio::test]
