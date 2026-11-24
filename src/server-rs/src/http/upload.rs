@@ -21,7 +21,8 @@ pub const MAX_ATTACHMENTS_PER_MAIL: usize = 20;
 // attachments" instead of dropping the surplus without telling the sender.
 const MAX_PARSED_FILES: usize = MAX_ATTACHMENTS_PER_MAIL + 1;
 
-const MAX_FIELD_BYTES: usize = 1024 * 1024;
+/// Matches the send validator's ceiling on the mail body, the largest field a form carries.
+const MAX_FIELD_BYTES: usize = 10 * 1024 * 1024;
 
 /// The largest request body the server reads.
 pub const MAX_REQUEST_BODY_SIZE: u64 = MAX_PARSED_FILES as u64 * MAX_FILE_SIZE + 64 * 1024 * 1024;
@@ -286,7 +287,8 @@ impl StreamCursor {
 
 enum FormError {
     Http(HttpError),
-    FileTooLarge,
+    /// A part broke a size limit; the message is what the sender is told.
+    PartTooLarge(String),
     Io(std::io::Error),
 }
 
@@ -321,7 +323,7 @@ async fn write_file_part(
     while let Some(chunk) = cursor.next_until(delimiter).await? {
         size += chunk.len() as u64;
         if size >= MAX_FILE_SIZE {
-            return Err(FormError::FileTooLarge);
+            return Err(FormError::PartTooLarge(format!("Each attachment must be smaller than {}MB", MAX_FILE_SIZE / 1024 / 1024)));
         }
         file.write_all(&chunk).await?;
     }
@@ -372,8 +374,13 @@ async fn parse_parts(cursor: &mut StreamCursor, boundary: &str, form: &mut Parse
             (Some(name), None) if form_data.is_match(disposition) => {
                 let mut value = Vec::new();
                 while let Some(chunk) = cursor.next_until(&delimiter).await? {
-                    let room = MAX_FIELD_BYTES.saturating_sub(value.len());
-                    value.extend_from_slice(&chunk[..chunk.len().min(room)]);
+                    if value.len() + chunk.len() > MAX_FIELD_BYTES {
+                        return Err(FormError::PartTooLarge(format!(
+                            "Each form field must be at most {}MB",
+                            MAX_FIELD_BYTES / 1024 / 1024
+                        )));
+                    }
+                    value.extend_from_slice(&chunk);
                 }
                 add_field(&mut form.fields, name, Value::String(String::from_utf8_lossy(&value).into_owned()));
             }
@@ -435,7 +442,7 @@ pub struct UploadOutcome {
 /// Parses a multipart body onto `req.body` (fields) and `req.files` (file
 /// parts). A request that is not multipart, or has no body, is left
 /// untouched. Call it only behind authentication, so unauthenticated bytes
-/// never reach disk. A file over the size limit is answered 413; a malformed
+/// never reach disk. A file or field over its size limit is answered 413; a malformed
 /// body is an [`HttpError`] with 400.
 pub async fn parse_uploads(req: &mut HttpRequest) -> anyhow::Result<UploadOutcome> {
     let Some(boundary) = boundary_of(req.header("content-type")) else {
@@ -455,15 +462,9 @@ pub async fn parse_uploads(req: &mut HttpRequest) -> anyhow::Result<UploadOutcom
         Err(error) => {
             remove_temp_files(std::mem::take(&mut form.temp_files));
             return match error {
-                FormError::FileTooLarge => Ok(UploadOutcome {
+                FormError::PartTooLarge(message) => Ok(UploadOutcome {
                     temp_files: Vec::new(),
-                    rejection: Some(json(
-                        &json!({
-                            "status": "failed",
-                            "message": format!("Each attachment must be smaller than {}MB", MAX_FILE_SIZE / 1024 / 1024),
-                        }),
-                        413,
-                    )),
+                    rejection: Some(json(&json!({ "status": "failed", "message": message }), 413)),
                 }),
                 FormError::Http(error) => Err(error.into()),
                 FormError::Io(error) => Err(error.into()),

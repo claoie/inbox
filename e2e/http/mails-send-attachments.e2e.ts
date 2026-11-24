@@ -376,14 +376,21 @@ describe("POST /api/mails/send as multipart — which parts count", () => {
     expect(server.mailgun.requests[0]!.fields.from).toEqual([`Näme <${box.address()}>`]);
   });
 
-  // NOTE: a text field is silently cut at 1 MiB — the rest of the user's
-  // message is dropped and the send still reports success.
-  test("a text field longer than 1 MiB is cut to 1 MiB without a word", async () => {
-    const html = `<p>${"x".repeat(MIB + 500)}</p>`;
+  test("a text field longer than 1 MiB arrives whole", async () => {
+    const html = `<p>${"ü".repeat(MIB)}</p>`;
     expect((await sendForm(fields({ ...TEXT, html }))).body).toEqual(SUCCESS);
+    expect(server.mailgun.requests[0]!.fields.html).toEqual([html]);
     const row = await latestMail(server, box.id);
-    expect(row.html).toHaveLength(MIB);
-    expect(row.html).toBe(html.slice(0, MIB));
+    expect(row.html).toBe(html);
+  });
+
+  test("a text field over 10 MiB is a 413 with its message; nothing is sent or stored", async () => {
+    const before = await countMails(server, box.id);
+    const { status, body } = await sendForm(fields({ ...TEXT, html: "x".repeat(10 * MIB + 1) }));
+    expect(status).toBe(413);
+    expect(body).toEqual(failed("Each form field must be at most 10MB"));
+    expect(server.mailgun.requests).toEqual([]);
+    expect(await countMails(server, box.id)).toBe(before);
   });
 });
 
