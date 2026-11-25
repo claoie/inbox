@@ -4,11 +4,15 @@
 //! from one source cannot flood the channel or starve another source.
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::panic::AssertUnwindSafe;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
+use futures_util::FutureExt;
 use serde_json::json;
 
+use crate::sync::LockUnpoisoned;
 use crate::{env, js};
 
 const COOLDOWN_MS: i64 = 60_000;
@@ -47,7 +51,7 @@ pub async fn send_alarm_utf16(title: &str, detail: &[u16], key: Option<&str>) {
     let key = key.unwrap_or(title).to_string();
     let now = js::now_ms();
     {
-        let mut last = last_alarm_at().lock().unwrap();
+        let mut last = last_alarm_at().lock_unpoisoned();
         if now - last.get(&key).copied().unwrap_or(0) < COOLDOWN_MS {
             return;
         }
@@ -114,9 +118,60 @@ pub fn install_panic_alarm() {
     }));
 }
 
+/// How long a process that is about to exit waits for its alarm to go out.
+const EXIT_ALARM_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Spawns a task the server cannot do its job without: a listener's accept
+/// loop. A panic there would leave the port open but unanswered, and the
+/// process up, so the container's restart policy would never act. Instead the
+/// panic pages and the process exits, and the restart brings up a fresh one:
+/// what the Bun server does on an uncaught exception.
+pub fn spawn_essential<F>(name: &'static str, task: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    tokio::spawn(async move {
+        match AssertUnwindSafe(task).catch_unwind().await {
+            Ok(output) => output,
+            Err(_) => exit_after_essential_panic(name).await,
+        }
+    })
+}
+
+async fn exit_after_essential_panic(name: &str) -> ! {
+    crate::logger::error_with("Essential task panicked, exiting", json!({ "task": name }), &"panic");
+    let detail = format!("**Task:** {name}\nThe server exits so that it is restarted.");
+    let _ = tokio::time::timeout(EXIT_ALARM_TIMEOUT, send_alarm("Server Restarting", &detail, None)).await;
+    std::process::exit(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const EXIT_CHILD: &str = "MAIL_TEST_ESSENTIAL_PANIC_CHILD";
+
+    #[test]
+    fn a_panic_in_an_essential_task_exits_the_process_with_status_1() {
+        if std::env::var_os(EXIT_CHILD).is_some() {
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+            let _ = runtime.block_on(async { spawn_essential("test task", async { panic!("fault in an essential task") }).await });
+            panic!("the process should have exited before the task was joined");
+        }
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "alarm::tests::a_panic_in_an_essential_task_exits_the_process_with_status_1"])
+            .env(EXIT_CHILD, "1")
+            .env_remove("DISCORD_ALARM_WEBHOOK")
+            .output()
+            .unwrap();
+        assert_eq!(status.status.code(), Some(1), "{}", String::from_utf8_lossy(&status.stdout));
+    }
+
+    #[tokio::test]
+    async fn an_essential_task_that_finishes_hands_back_its_output() {
+        assert_eq!(spawn_essential("test task", async { 7 }).await.unwrap(), 7);
+    }
 
     #[test]
     fn the_body_is_one_embed_in_the_order_the_bun_server_writes_it() {

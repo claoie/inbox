@@ -188,7 +188,8 @@ async fn accept_loop(
 fn start(listener: TcpListener, tls: Option<AcceptorSource>, proxied: bool, serve: Serve) -> ImapServer {
     let stop = CancellationToken::new();
     let connections = Arc::new(Semaphore::new(IMAP_MAX_CONNECTIONS as usize));
-    let accepting = tokio::spawn(accept_loop(listener, tls, proxied, stop.clone(), connections.clone(), serve));
+    let accepting =
+        crate::alarm::spawn_essential("IMAP accept loop", accept_loop(listener, tls, proxied, stop.clone(), connections.clone(), serve));
     ImapServer { stop, connections, accepting }
 }
 

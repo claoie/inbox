@@ -20,6 +20,7 @@ use crate::postgres::repositories::users::{
 };
 use crate::postgres::Param;
 use crate::smtp::registry::evict_smtp_connections;
+use crate::sync::LockUnpoisoned;
 use crate::util::is_routable_username;
 use crate::verify_password::hash_password;
 use crate::{env, js, logger};
@@ -159,7 +160,7 @@ fn expiry_timers() -> &'static Mutex<HashMap<String, JoinHandle<()>>> {
 }
 
 fn clear_timer(user_id: &str) {
-    if let Some(timer) = expiry_timers().lock().unwrap().remove(user_id) {
+    if let Some(timer) = expiry_timers().lock_unpoisoned().remove(user_id) {
         timer.abort();
     }
 }
@@ -173,13 +174,13 @@ pub fn start_timer(user_id: &str) {
         let id = id.clone();
         async move {
             tokio::time::sleep(Duration::from_millis(TOKEN_DURATION_MS as u64)).await;
-            expiry_timers().lock().unwrap().remove(&id);
+            expiry_timers().lock_unpoisoned().remove(&id);
             if let Err(error) = reclaim_expired_token(&id).await {
                 logger::error_with("Failed to reclaim an expired token", json!({ "userId": id }), &error);
             }
         }
     });
-    expiry_timers().lock().unwrap().insert(id, handle);
+    expiry_timers().lock_unpoisoned().insert(id, handle);
 }
 
 /// Completes a sign-up or a password reset: checks the token, stores the new

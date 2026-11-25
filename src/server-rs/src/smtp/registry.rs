@@ -7,6 +7,7 @@ use serde_json::json;
 
 use super::server::{ServerShared, SmtpServer};
 use crate::logger;
+use crate::sync::LockUnpoisoned;
 
 static LIVE_SERVERS: Mutex<Vec<Arc<ServerShared>>> = Mutex::new(Vec::new());
 
@@ -15,7 +16,7 @@ static LIVE_SERVERS: Mutex<Vec<Arc<ServerShared>>> = Mutex::new(Vec::new());
 /// authenticated with a since-rotated password keeps its grant until the
 /// socket closes.
 pub fn register_smtp_server(server: &SmtpServer) {
-    let mut servers = LIVE_SERVERS.lock().unwrap();
+    let mut servers = LIVE_SERVERS.lock_unpoisoned();
     if !servers.iter().any(|live| Arc::ptr_eq(live, server.shared())) {
         servers.push(server.shared().clone());
     }
@@ -23,7 +24,7 @@ pub fn register_smtp_server(server: &SmtpServer) {
 
 /// Drops a server from the registry. Runs when the server closes.
 pub fn unregister_smtp_server(server: &SmtpServer) {
-    LIVE_SERVERS.lock().unwrap().retain(|live| !Arc::ptr_eq(live, server.shared()));
+    LIVE_SERVERS.lock_unpoisoned().retain(|live| !Arc::ptr_eq(live, server.shared()));
 }
 
 /// Closes every SMTP connection authenticated as `username`, across every
@@ -34,7 +35,7 @@ pub fn unregister_smtp_server(server: &SmtpServer) {
 /// the name as presented), so a read-only connection is left alone when the
 /// account it sends for rotates its password.
 pub fn evict_smtp_connections(username: &str) -> usize {
-    let servers = LIVE_SERVERS.lock().unwrap().clone();
+    let servers = LIVE_SERVERS.lock_unpoisoned().clone();
     let evicted: usize = servers.iter().map(|server| server.evict(username)).sum();
     if evicted > 0 {
         logger::info(

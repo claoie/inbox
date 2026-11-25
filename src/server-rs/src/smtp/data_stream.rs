@@ -20,6 +20,7 @@ use tokio::io::{AsyncRead, ReadBuf};
 use tokio::sync::Notify;
 
 use super::types::SmtpHookError;
+use crate::sync::LockUnpoisoned;
 
 /// What the stream holds before the connection stops reading its socket: a
 /// `PassThrough` fills its writable and its readable side, 64 KiB each.
@@ -152,7 +153,7 @@ impl DataWriter {
     /// Queues message bytes. `false` means the consumer is behind and the
     /// socket should not be read until [`DataWriter::needs_drain`] clears.
     pub fn write(&self, chunk: Bytes) -> bool {
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = self.shared.state.lock_unpoisoned();
         if state.ended || state.abandoned || chunk.is_empty() {
             return !state.need_drain;
         }
@@ -194,7 +195,7 @@ impl DataWriter {
     }
 
     fn finish(&self, abandoned: bool) {
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = self.shared.state.lock_unpoisoned();
         if state.ended || state.abandoned {
             return;
         }
@@ -212,18 +213,18 @@ impl DataWriter {
 
     /// Whether [`DataWriter::end`] was called.
     pub fn is_ended(&self) -> bool {
-        self.shared.state.lock().unwrap().ended
+        self.shared.state.lock_unpoisoned().ended
     }
 
     /// The consumer has not caught up with what was written yet.
     pub fn needs_drain(&self) -> bool {
-        self.shared.state.lock().unwrap().need_drain
+        self.shared.state.lock_unpoisoned().need_drain
     }
 
     /// The message ended and its consumer has read all of it, or dropped it,
     /// or it went past the size ceiling and the rest was discarded.
     pub fn is_finished(&self) -> bool {
-        let state = self.shared.state.lock().unwrap();
+        let state = self.shared.state.lock_unpoisoned();
         state.ended && (state.end_read || state.discarding())
     }
 
@@ -255,12 +256,12 @@ impl SmtpDataStream {
     /// The listener's `size`: the ceiling it advertises in EHLO and checks a
     /// declared `SIZE=` against.
     pub fn size_limit(&self) -> u64 {
-        self.shared.state.lock().unwrap().size_limit
+        self.shared.state.lock_unpoisoned().size_limit
     }
 
     /// How many bytes of the message have arrived so far, read or not.
     pub fn received(&self) -> u64 {
-        self.shared.state.lock().unwrap().written
+        self.shared.state.lock_unpoisoned().written
     }
 
     /// Holds the message to the listener's `size`. Once more than that has
@@ -275,7 +276,7 @@ impl SmtpDataStream {
     /// parser and refuses as soon as the ceiling is crossed. Answer the hook
     /// with the error (`SmtpHookError::from(too_large)`) for its 552.
     pub fn enforce_size_limit(&mut self) {
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = self.shared.state.lock_unpoisoned();
         state.enforce_size_limit = true;
         let crossed = state.check_size();
         drop(state);
@@ -287,13 +288,13 @@ impl SmtpDataStream {
 
     /// Whether the message went past the ceiling being enforced.
     pub fn is_over_size_limit(&self) -> bool {
-        self.shared.state.lock().unwrap().too_large
+        self.shared.state.lock_unpoisoned().too_large
     }
 
     /// The bytes that have arrived and not been read yet. The connection
     /// stops reading its socket while this is at the high-water mark.
     pub fn buffered(&self) -> usize {
-        self.shared.state.lock().unwrap().buffered
+        self.shared.state.lock_unpoisoned().buffered
     }
 
     /// The next piece of the message, `None` at its end.
@@ -302,7 +303,7 @@ impl SmtpDataStream {
     }
 
     fn poll_chunk(&mut self, cx: &mut Context<'_>, limit: usize) -> Poll<io::Result<Option<Bytes>>> {
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = self.shared.state.lock_unpoisoned();
         if state.too_large {
             let limit = state.size_limit;
             return Poll::Ready(Err(io::Error::new(io::ErrorKind::InvalidData, SmtpDataTooLarge { limit })));
@@ -370,7 +371,7 @@ impl Stream for SmtpDataStream {
 
 impl Drop for SmtpDataStream {
     fn drop(&mut self) {
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = self.shared.state.lock_unpoisoned();
         state.reader_gone = true;
         state.chunks.clear();
         state.buffered = 0;

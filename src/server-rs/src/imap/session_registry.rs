@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::json;
 
 use crate::logger;
+use crate::sync::LockUnpoisoned;
 
 /// What the registry needs from a session.
 pub trait RegisteredSession: Send + Sync {
@@ -29,14 +30,14 @@ fn same(a: &Arc<dyn RegisteredSession>, b: &Arc<dyn RegisteredSession>) -> bool 
 }
 
 fn add(sessions: &Sessions, session: Arc<dyn RegisteredSession>) {
-    let mut sessions = sessions.lock().unwrap();
+    let mut sessions = sessions.lock_unpoisoned();
     if !sessions.iter().any(|held| same(held, &session)) {
         sessions.push(session);
     }
 }
 
 fn remove(sessions: &Sessions, session: &Arc<dyn RegisteredSession>) {
-    sessions.lock().unwrap().retain(|held| !same(held, session));
+    sessions.lock_unpoisoned().retain(|held| !same(held, session));
 }
 
 /// Tracks a live connection, authenticated or not, so
@@ -73,7 +74,7 @@ pub fn unregister_session(session: &Arc<dyn RegisteredSession>) {
 /// reads.
 pub fn evict_imap_sessions(username: &str) -> usize {
     let matching: Vec<Arc<dyn RegisteredSession>> = {
-        let mut sessions = AUTHENTICATED_SESSIONS.lock().unwrap();
+        let mut sessions = AUTHENTICATED_SESSIONS.lock_unpoisoned();
         let (matching, rest): (Vec<_>, Vec<_>) =
             sessions.drain(..).partition(|session| session.authenticated_as().as_deref() == Some(username));
         *sessions = rest;
@@ -101,7 +102,7 @@ pub fn evict_imap_sessions(username: &str) -> usize {
 /// its inactivity timeout reclaims it, long past a container's stop grace
 /// period.
 pub fn shutdown_imap_sessions() -> usize {
-    let sessions: Vec<Arc<dyn RegisteredSession>> = std::mem::take(&mut *CONNECTED_SESSIONS.lock().unwrap());
+    let sessions: Vec<Arc<dyn RegisteredSession>> = std::mem::take(&mut *CONNECTED_SESSIONS.lock_unpoisoned());
     let mut closed = 0;
     for session in sessions {
         // Already on its way out: an IDLE session the IDLE sweep has just
@@ -117,11 +118,11 @@ pub fn shutdown_imap_sessions() -> usize {
 }
 
 pub fn get_authenticated_session_count() -> usize {
-    AUTHENTICATED_SESSIONS.lock().unwrap().len()
+    AUTHENTICATED_SESSIONS.lock_unpoisoned().len()
 }
 
 pub fn get_connected_session_count() -> usize {
-    CONNECTED_SESSIONS.lock().unwrap().len()
+    CONNECTED_SESSIONS.lock_unpoisoned().len()
 }
 
 /// Forgets every tracked connection without touching its socket. A test's
@@ -129,7 +130,7 @@ pub fn get_connected_session_count() -> usize {
 /// test that counts or sweeps the registry starts from nothing.
 #[cfg(test)]
 pub(crate) fn reset_connected_sessions() {
-    CONNECTED_SESSIONS.lock().unwrap().clear();
+    CONNECTED_SESSIONS.lock_unpoisoned().clear();
 }
 
 #[cfg(test)]
@@ -154,7 +155,7 @@ mod tests {
         }
 
         fn calls(&self) -> Vec<String> {
-            self.calls.lock().unwrap().clone()
+            self.calls.lock_unpoisoned().clone()
         }
     }
 
@@ -168,12 +169,12 @@ mod tests {
         }
 
         fn write(&self, data: &str) -> bool {
-            self.calls.lock().unwrap().push(format!("write:{data}"));
+            self.calls.lock_unpoisoned().push(format!("write:{data}"));
             true
         }
 
         fn close(&self) {
-            self.calls.lock().unwrap().push("close".to_string());
+            self.calls.lock_unpoisoned().push("close".to_string());
             self.closing.store(true, Ordering::SeqCst);
         }
 

@@ -9,6 +9,7 @@ use serde_json::json;
 
 use crate::postgres::repositories::push_subscriptions as repo;
 use crate::push_validation::{validate_push_subscription, PushSubscription};
+use crate::sync::RwLockUnpoisoned;
 use crate::{env, logger};
 
 #[derive(Clone, Default)]
@@ -87,17 +88,17 @@ pub fn init_push() -> Result<()> {
             }),
         );
     }
-    *VAPID.write().unwrap() = Vapid { public_key, private_key, subject, configured };
+    *VAPID.write_unpoisoned() = Vapid { public_key, private_key, subject, configured };
     Ok(())
 }
 
 /// The VAPID public key a browser subscribes with, when one is set.
 pub fn get_push_public_key() -> Option<String> {
-    VAPID.read().unwrap().public_key.clone()
+    VAPID.read_unpoisoned().public_key.clone()
 }
 
 pub fn is_push_enabled() -> bool {
-    VAPID.read().unwrap().configured
+    VAPID.read_unpoisoned().configured
 }
 
 /// Stores a subscription for `user_id` and returns its id.
@@ -396,7 +397,7 @@ async fn send_notification_safely(
     subscription: &repo::ComputedPushSubscription,
     payload: serde_json::Value,
 ) -> bool {
-    let vapid = VAPID.read().unwrap().clone();
+    let vapid = VAPID.read_unpoisoned().clone();
     let (Some(public_key), Some(private_key)) = (vapid.public_key, vapid.private_key) else {
         return false;
     };

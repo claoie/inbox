@@ -16,6 +16,7 @@ use std::sync::{Mutex, OnceLock};
 use tokio::sync::oneshot;
 
 use super::command_budget_hold::yield_command_budget_during;
+use crate::sync::LockUnpoisoned;
 
 /// Absent key: available. Present: held, and the queue is who waits for it.
 fn inflight() -> &'static Mutex<HashMap<String, VecDeque<oneshot::Sender<()>>>> {
@@ -24,7 +25,7 @@ fn inflight() -> &'static Mutex<HashMap<String, VecDeque<oneshot::Sender<()>>>> 
 }
 
 fn release(key: &str) {
-    let mut inflight = inflight().lock().unwrap();
+    let mut inflight = inflight().lock_unpoisoned();
     let Some(queue) = inflight.get_mut(key) else {
         return;
     };
@@ -75,7 +76,7 @@ impl Drop for Queued {
 /// abandoned by its consumer.
 pub async fn acquire_stream_mutex(key: &str) -> StreamMutexGuard {
     let turn = {
-        let mut inflight = inflight().lock().unwrap();
+        let mut inflight = inflight().lock_unpoisoned();
         match inflight.get_mut(key) {
             None => {
                 inflight.insert(key.to_string(), VecDeque::new());
@@ -110,17 +111,17 @@ pub async fn with_stream_mutex<F: Future>(key: &str, work: F) -> F::Output {
 
 /// Forgets every key and waiter. For tests.
 pub fn reset_stream_mutex() {
-    inflight().lock().unwrap().clear();
+    inflight().lock_unpoisoned().clear();
 }
 
 /// Number of keys held now.
 pub fn stream_mutex_held_count() -> usize {
-    inflight().lock().unwrap().len()
+    inflight().lock_unpoisoned().len()
 }
 
 /// Number of callers queued for `key`.
 pub fn stream_mutex_waiters_for(key: &str) -> usize {
-    inflight().lock().unwrap().get(key).map_or(0, VecDeque::len)
+    inflight().lock_unpoisoned().get(key).map_or(0, VecDeque::len)
 }
 
 #[cfg(test)]
@@ -188,7 +189,7 @@ mod tests {
             let order = order.clone();
             tasks.push(tokio::spawn(async move {
                 let _guard = acquire_stream_mutex(key).await;
-                order.lock().unwrap().push(n);
+                order.lock_unpoisoned().push(n);
                 tokio::task::yield_now().await;
             }));
             settle().await;
@@ -198,7 +199,7 @@ mod tests {
         for task in tasks {
             task.await.unwrap();
         }
-        assert_eq!(*order.lock().unwrap(), vec![0, 1, 2]);
+        assert_eq!(*order.lock_unpoisoned(), vec![0, 1, 2]);
     }
 
     #[tokio::test]

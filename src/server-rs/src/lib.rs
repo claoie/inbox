@@ -27,6 +27,7 @@ pub mod push_validation;
 pub mod smtp;
 pub mod spam;
 pub mod sso;
+pub mod sync;
 pub mod tls;
 pub mod users;
 pub mod util;

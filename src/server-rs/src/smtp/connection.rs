@@ -55,6 +55,7 @@ use super::types::{
     SmtpSession, SmtpSessionState,
 };
 use crate::proxy_protocol::Prefixed;
+use crate::sync::LockUnpoisoned;
 use crate::tls::{TlsAcceptor, TlsStream};
 use crate::{js, logger};
 
@@ -316,7 +317,7 @@ pub(crate) struct ConnectionHandle {
 
 impl ConnectionHandle {
     pub fn user(&self) -> Option<String> {
-        self.user.lock().unwrap().clone()
+        self.user.lock_unpoisoned().clone()
     }
 
     pub fn queued_reply_bytes(&self) -> usize {
@@ -1360,7 +1361,7 @@ impl Connection {
         if let Some(session) = self.session.as_ref() {
             self.transaction_open = session.envelope.mail_from.is_some();
             let user = session.user.clone();
-            let mut current = self.handle.user.lock().unwrap();
+            let mut current = self.handle.user.lock_unpoisoned();
             if *current != user {
                 *current = user;
             }

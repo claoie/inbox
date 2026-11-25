@@ -13,6 +13,7 @@ use tokio::time::Instant;
 
 use super::util::is_inbox;
 use crate::logger;
+use crate::sync::LockUnpoisoned;
 
 // The sweep interval must stay well below the timeout so the keepalive runs
 // several times before a session is force-terminated.
@@ -60,7 +61,7 @@ impl IdleManager {
     }
 
     fn snapshot(&self) -> Vec<(String, IdleSession)> {
-        self.idle_sessions.lock().unwrap().clone()
+        self.idle_sessions.lock_unpoisoned().clone()
     }
 
     /// Registers a session for IDLE.
@@ -80,7 +81,7 @@ impl IdleManager {
             start_time: Instant::now(),
         };
         {
-            let mut sessions = self.idle_sessions.lock().unwrap();
+            let mut sessions = self.idle_sessions.lock_unpoisoned();
             match sessions.iter_mut().find(|(id, _)| id == session_id) {
                 Some(entry) => entry.1 = idle_session,
                 None => sessions.push((session_id.to_string(), idle_session)),
@@ -92,7 +93,7 @@ impl IdleManager {
     /// Removes a session from IDLE.
     pub fn remove_idle_session(&self, session_id: &str) {
         let removed = {
-            let mut sessions = self.idle_sessions.lock().unwrap();
+            let mut sessions = self.idle_sessions.lock_unpoisoned();
             sessions.iter().position(|(id, _)| id == session_id).map(|at| sessions.remove(at).1)
         };
         if let Some(idle_session) = removed {
@@ -195,7 +196,7 @@ impl IdleManager {
 
     /// Starts the keepalive sweep. Once per manager; needs a runtime.
     pub fn start_heartbeat(&'static self) {
-        let mut heartbeat = self.heartbeat.lock().unwrap();
+        let mut heartbeat = self.heartbeat.lock_unpoisoned();
         if heartbeat.is_some() {
             return;
         }
@@ -228,20 +229,20 @@ impl IdleManager {
 
     /// Number of sessions in IDLE.
     pub fn get_active_session_count(&self) -> usize {
-        self.idle_sessions.lock().unwrap().len()
+        self.idle_sessions.lock_unpoisoned().len()
     }
 
     /// Number of sessions of one user in IDLE.
     pub fn get_user_session_count(&self, username: &str) -> usize {
-        self.idle_sessions.lock().unwrap().iter().filter(|(_, session)| session.username == username).count()
+        self.idle_sessions.lock_unpoisoned().iter().filter(|(_, session)| session.username == username).count()
     }
 
     /// Cleanup on shutdown: stops the sweep and says BYE to every IDLE session.
     pub fn shutdown(&self) {
-        if let Some(heartbeat) = self.heartbeat.lock().unwrap().take() {
+        if let Some(heartbeat) = self.heartbeat.lock_unpoisoned().take() {
             heartbeat.abort();
         }
-        let sessions = std::mem::take(&mut *self.idle_sessions.lock().unwrap());
+        let sessions = std::mem::take(&mut *self.idle_sessions.lock_unpoisoned());
         for (_, idle_session) in sessions {
             idle_session.session.write("* BYE Server shutting down\r\n");
             idle_session.session.close();
@@ -304,17 +305,17 @@ mod tests {
                 if self.fail.load(Ordering::SeqCst) {
                     anyhow::bail!("socket gone");
                 }
-                self.flag_changes.lock().unwrap().push(mail_ids.to_vec());
+                self.flag_changes.lock_unpoisoned().push(mail_ids.to_vec());
                 Ok(())
             })
         }
 
         fn end_idle(&self, reason: Option<&str>) {
-            self.ended.lock().unwrap().push(reason.map(str::to_string));
+            self.ended.lock_unpoisoned().push(reason.map(str::to_string));
         }
 
         fn write(&self, data: &str) -> bool {
-            self.writes.lock().unwrap().push(data.to_string());
+            self.writes.lock_unpoisoned().push(data.to_string());
             true
         }
 
@@ -377,8 +378,8 @@ mod tests {
         let alice = add(&manager, "s1", "INBOX", "alice");
         let bob = add(&manager, "s2", "INBOX", "bob");
         manager.notify_flag_change(&names(&["alice"]), &names(&["m1", "m2"])).await;
-        assert_eq!(*alice.flag_changes.lock().unwrap(), vec![names(&["m1", "m2"])]);
-        assert!(bob.flag_changes.lock().unwrap().is_empty());
+        assert_eq!(*alice.flag_changes.lock_unpoisoned(), vec![names(&["m1", "m2"])]);
+        assert!(bob.flag_changes.lock_unpoisoned().is_empty());
     }
 
     #[tokio::test]
@@ -386,7 +387,7 @@ mod tests {
         let manager = IdleManager::new();
         let alice = add(&manager, "s1", "INBOX", "alice");
         manager.notify_flag_change(&names(&["alice"]), &[]).await;
-        assert!(alice.flag_changes.lock().unwrap().is_empty());
+        assert!(alice.flag_changes.lock_unpoisoned().is_empty());
     }
 
     #[tokio::test]
@@ -398,7 +399,7 @@ mod tests {
 
         manager.notify_flag_change(&names(&["alice"]), &names(&["m1"])).await;
         assert_eq!(manager.get_active_session_count(), 1);
-        assert_eq!(healthy.flag_changes.lock().unwrap().len(), 1);
+        assert_eq!(healthy.flag_changes.lock_unpoisoned().len(), 1);
 
         let also_broken = add(&manager, "s3", "INBOX", "alice");
         also_broken.fail.store(true, Ordering::SeqCst);
@@ -419,8 +420,8 @@ mod tests {
         let manager = IdleManager::new();
         let session = add(&manager, "s1", "INBOX", "alice");
         manager.heartbeat_tick(Instant::now() + Duration::from_millis(IDLE_HEARTBEAT_INTERVAL_MS));
-        assert_eq!(*session.writes.lock().unwrap(), vec!["* OK Still here\r\n".to_string()]);
-        assert!(session.ended.lock().unwrap().is_empty());
+        assert_eq!(*session.writes.lock_unpoisoned(), vec!["* OK Still here\r\n".to_string()]);
+        assert!(session.ended.lock_unpoisoned().is_empty());
         assert_eq!(manager.get_active_session_count(), 1);
     }
 
@@ -429,8 +430,8 @@ mod tests {
         let manager = IdleManager::new();
         let session = add(&manager, "s1", "INBOX", "alice");
         manager.heartbeat_tick(Instant::now() + Duration::from_millis(IDLE_TIMEOUT_MS + 1));
-        assert_eq!(*session.ended.lock().unwrap(), vec![Some("timeout".to_string())]);
-        assert!(session.writes.lock().unwrap().is_empty());
+        assert_eq!(*session.ended.lock_unpoisoned(), vec![Some("timeout".to_string())]);
+        assert!(session.writes.lock_unpoisoned().is_empty());
     }
 
     #[tokio::test]
@@ -440,7 +441,7 @@ mod tests {
         let second = add(&manager, "s2", "Drafts", "bob");
         manager.shutdown();
         for session in [first, second] {
-            assert_eq!(*session.writes.lock().unwrap(), vec!["* BYE Server shutting down\r\n".to_string()]);
+            assert_eq!(*session.writes.lock_unpoisoned(), vec!["* BYE Server shutting down\r\n".to_string()]);
             assert!(session.closed.load(Ordering::SeqCst));
         }
         assert_eq!(manager.get_active_session_count(), 0);

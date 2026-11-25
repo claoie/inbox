@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tokio::sync::oneshot;
+use crate::sync::LockUnpoisoned;
 
 struct State {
     in_flight: usize,
@@ -30,12 +31,12 @@ impl FifoSemaphore {
     }
 
     pub fn in_flight(&self) -> usize {
-        self.state.lock().unwrap().in_flight
+        self.state.lock_unpoisoned().in_flight
     }
 
     /// Takes a slot if one is free right now.
     pub fn try_acquire(&self) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock_unpoisoned();
         if state.in_flight >= self.capacity {
             return false;
         }
@@ -44,7 +45,7 @@ impl FifoSemaphore {
     }
 
     fn enqueue(&self) -> Option<(u64, oneshot::Receiver<()>)> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock_unpoisoned();
         if state.in_flight < self.capacity {
             state.in_flight += 1;
             return None;
@@ -77,7 +78,7 @@ impl FifoSemaphore {
         match tokio::time::timeout(timeout, &mut receiver).await {
             Ok(_) => Some(start.elapsed()),
             Err(_) => {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.state.lock_unpoisoned();
                 let before = state.wait_queue.len();
                 state.wait_queue.retain(|(queued, _)| *queued != id);
                 if state.wait_queue.len() == before {
@@ -92,7 +93,7 @@ impl FifoSemaphore {
 
     /// Returns a slot, handing it to the longest-waiting acquirer if any.
     pub fn release(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock_unpoisoned();
         if state.in_flight == 0 {
             return;
         }
@@ -109,7 +110,7 @@ impl FifoSemaphore {
 
     /// Forgets every slot and waiter. For tests.
     pub fn reset(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock_unpoisoned();
         state.in_flight = 0;
         state.wait_queue.clear();
     }
@@ -131,7 +132,7 @@ mod tests {
             let (semaphore, order) = (semaphore.clone(), order.clone());
             tasks.push(tokio::spawn(async move {
                 semaphore.acquire().await;
-                order.lock().unwrap().push(n);
+                order.lock_unpoisoned().push(n);
                 semaphore.release();
             }));
             tokio::task::yield_now().await;
@@ -140,7 +141,7 @@ mod tests {
         for task in tasks {
             task.await.unwrap();
         }
-        assert_eq!(*order.lock().unwrap(), vec![0, 1, 2]);
+        assert_eq!(*order.lock_unpoisoned(), vec![0, 1, 2]);
         assert_eq!(semaphore.in_flight(), 0);
     }
 

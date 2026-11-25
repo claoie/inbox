@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 
 use super::request::HttpRequest;
 use super::respond::{json_failed, Response};
+use crate::sync::LockUnpoisoned;
 use crate::{js, logger};
 
 /// The identity every bucket is keyed on: the resolved client address, which
@@ -64,7 +65,7 @@ fn account_key(ip: &str, account: &str) -> String {
 
 fn bump(map: &Attempts, key: String) {
     let now = js::now_ms();
-    let mut map = map.lock().unwrap();
+    let mut map = map.lock_unpoisoned();
     match map.get_mut(&key) {
         Some(record) if now < record.reset_at => record.count += 1,
         _ => {
@@ -79,15 +80,14 @@ impl RateLimiter {
     pub fn new(max_attempts: u32, message: &'static str, by_identity: bool) -> RateLimiter {
         let attempts: Attempts = Default::default();
         let account_attempts: Attempts = Default::default();
-        let mut maps = all_attempt_maps().lock().unwrap();
+        let mut maps = all_attempt_maps().lock_unpoisoned();
         maps.push(attempts.clone());
         maps.push(account_attempts.clone());
         RateLimiter { max_attempts, message, by_identity, attempts, account_attempts }
     }
 
     fn is_limited(&self, map: &Attempts, key: &str) -> bool {
-        map.lock()
-            .unwrap()
+        map.lock_unpoisoned()
             .get(key)
             .is_some_and(|record| js::now_ms() < record.reset_at && record.count >= self.max_attempts)
     }
@@ -115,12 +115,12 @@ impl RateLimiter {
     pub fn reset(&self, ip: &str, account: Option<&str>) {
         match account {
             Some(account) => {
-                self.account_attempts.lock().unwrap().remove(&account_key(ip, account));
+                self.account_attempts.lock_unpoisoned().remove(&account_key(ip, account));
             }
             None => {
-                self.attempts.lock().unwrap().remove(ip);
+                self.attempts.lock_unpoisoned().remove(ip);
                 let prefix = format!("{ip}\u{0}");
-                self.account_attempts.lock().unwrap().retain(|key, _| !key.starts_with(&prefix));
+                self.account_attempts.lock_unpoisoned().retain(|key, _| !key.starts_with(&prefix));
             }
         }
     }
@@ -130,8 +130,8 @@ impl RateLimiter {
 pub fn cleanup_expired_attempts() -> usize {
     let now = js::now_ms();
     let mut cleaned = 0;
-    for map in all_attempt_maps().lock().unwrap().iter() {
-        let mut map = map.lock().unwrap();
+    for map in all_attempt_maps().lock_unpoisoned().iter() {
+        let mut map = map.lock_unpoisoned();
         let before = map.len();
         map.retain(|_, record| now < record.reset_at);
         cleaned += before - map.len();

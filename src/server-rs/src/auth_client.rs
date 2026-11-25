@@ -36,6 +36,7 @@ use subtle::ConstantTimeEq;
 use url::Url;
 
 use crate::js;
+use crate::sync::LockUnpoisoned;
 
 const LEEWAY_S: f64 = 30.0;
 /// The cookie a sign-in's state travels in between its two requests.
@@ -562,7 +563,7 @@ impl Inner {
     }
 
     fn forget_discovery(&self, id: u64) {
-        let mut slot = self.discovery.lock().unwrap();
+        let mut slot = self.discovery.lock_unpoisoned();
         if slot.as_ref().is_some_and(|(current, _)| *current == id) {
             *slot = None;
         }
@@ -572,7 +573,7 @@ impl Inner {
     /// accepted, and asked for again after a failure.
     async fn discover(self: &Arc<Self>) -> Result<Arc<Discovery>, AuthError> {
         let (id, load) = {
-            let mut slot = self.discovery.lock().unwrap();
+            let mut slot = self.discovery.lock_unpoisoned();
             match slot.as_ref() {
                 Some((id, load)) => (*id, load.clone()),
                 None => {
@@ -629,7 +630,7 @@ impl Inner {
             }
         }
         let now = self.now();
-        let mut state = self.keys.lock().unwrap();
+        let mut state = self.keys.lock_unpoisoned();
         state.keys = next;
         state.fetched_at = Some(now);
         Ok(())
@@ -640,7 +641,7 @@ impl Inner {
     /// every request fetch.
     async fn load_keys(self: &Arc<Self>) -> Result<(), AuthError> {
         let load = {
-            let mut state = self.keys.lock().unwrap();
+            let mut state = self.keys.lock_unpoisoned();
             if let Some(loading) = &state.loading {
                 loading.clone()
             } else {
@@ -652,7 +653,7 @@ impl Inner {
                 let inner = Arc::clone(self);
                 let load = detached(async move {
                     let result = inner.fetch_keys().await;
-                    inner.keys.lock().unwrap().loading = None;
+                    inner.keys.lock_unpoisoned().loading = None;
                     result
                 });
                 state.loading = Some(load.clone());
@@ -664,7 +665,7 @@ impl Inner {
 
     async fn key_for(self: &Arc<Self>, kid: &str) -> Result<VerifyingKey, AuthError> {
         let needs_load = {
-            let state = self.keys.lock().unwrap();
+            let state = self.keys.lock_unpoisoned();
             let expired = state.fetched_at.is_none_or(|at| self.now() - at >= JWKS_TTL_MS);
             expired || !state.keys.contains_key(kid)
         };
@@ -674,13 +675,12 @@ impl Inner {
                 Ok(()) | Err(AuthError::Unavailable(_)) => {}
                 Err(error) => return Err(error),
             }
-            if self.keys.lock().unwrap().fetched_at.is_none() {
+            if self.keys.lock_unpoisoned().fetched_at.is_none() {
                 return Err(AuthError::unavailable("auth's signing keys are unavailable"));
             }
         }
         self.keys
-            .lock()
-            .unwrap()
+            .lock_unpoisoned()
             .keys
             .get(kid)
             .copied()
@@ -770,7 +770,7 @@ impl Inner {
         if sub.is_none() && id.is_none() {
             return;
         }
-        self.cache.lock().unwrap().forget(sub, id);
+        self.cache.lock_unpoisoned().forget(sub, id);
     }
 }
 
@@ -993,7 +993,7 @@ impl AuthClient {
         }
         // Keyed by digest, so the cache never holds a usable secret.
         let key = hex::encode(Sha256::digest(secret.as_bytes()));
-        let hit = inner.cache.lock().unwrap().get(&key);
+        let hit = inner.cache.lock_unpoisoned().get(&key);
         if let Some((answer, at)) = &hit {
             if inner.now() - at < FRESH_MS {
                 return Ok(Some(answer.clone()));
@@ -1035,7 +1035,7 @@ impl AuthClient {
             )));
         }
         if body.get("active") != Some(&Value::Bool(true)) {
-            inner.cache.lock().unwrap().remove(&key);
+            inner.cache.lock_unpoisoned().remove(&key);
             return Ok(None);
         }
         let text = |field: &str| body.get(field).and_then(Value::as_str).map(str::to_string);
@@ -1053,7 +1053,7 @@ impl AuthClient {
                 .unwrap_or_default(),
             id: text("jti"),
         };
-        inner.cache.lock().unwrap().insert(key, result.clone(), inner.now());
+        inner.cache.lock_unpoisoned().insert(key, result.clone(), inner.now());
         Ok(Some(result))
     }
 

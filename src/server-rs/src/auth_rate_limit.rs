@@ -9,6 +9,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use crate::js;
+use crate::sync::LockUnpoisoned;
 
 const MAX_FAILURES: u32 = 10;
 const MAX_RECIPIENT_PROBES: u32 = 10;
@@ -54,7 +55,7 @@ pub fn normalize_auth_account(username: Option<&str>) -> Option<String> {
 /// Runs `update` on it and returns the count afterwards.
 fn with_record(store: &Store, key: &str, update: impl FnOnce(&mut AttemptRecord)) -> u32 {
     let now = js::now_ms();
-    let mut store = store.lock().unwrap();
+    let mut store = store.lock_unpoisoned();
     let record = match store.get_mut(key) {
         Some(record) if now < record.reset_at => record,
         _ => {
@@ -101,12 +102,12 @@ pub fn reset_auth_failures(ip: &str, account: Option<&str>) {
     let stores = stores();
     match account {
         Some(account) => {
-            stores.auth_account_attempts.lock().unwrap().remove(&account_key(ip, account));
+            stores.auth_account_attempts.lock_unpoisoned().remove(&account_key(ip, account));
         }
         None => {
-            stores.auth_attempts.lock().unwrap().remove(ip);
+            stores.auth_attempts.lock_unpoisoned().remove(ip);
             let prefix = format!("{ip}\u{0}");
-            stores.auth_account_attempts.lock().unwrap().retain(|key, _| !key.starts_with(&prefix));
+            stores.auth_account_attempts.lock_unpoisoned().retain(|key, _| !key.starts_with(&prefix));
         }
     }
 }
@@ -123,7 +124,7 @@ pub async fn record_recipient_probe(ip: &str) -> bool {
 }
 
 pub fn reset_recipient_probes(ip: &str) {
-    stores().recipient_probes.lock().unwrap().remove(ip);
+    stores().recipient_probes.lock_unpoisoned().remove(ip);
 }
 
 /// Drops expired records and returns how many there were.
@@ -132,7 +133,7 @@ pub fn cleanup_expired_rate_limit_records() -> usize {
     let stores = stores();
     let mut cleaned = 0;
     for store in [&stores.auth_attempts, &stores.auth_account_attempts, &stores.recipient_probes] {
-        let mut store = store.lock().unwrap();
+        let mut store = store.lock_unpoisoned();
         let before = store.len();
         store.retain(|_, record| now < record.reset_at);
         cleaned += before - store.len();

@@ -668,7 +668,7 @@ pub async fn initialize_http() -> anyhow::Result<HttpServer> {
 
     let shutdown = CancellationToken::new();
     let graceful = hyper_util::server::graceful::GracefulShutdown::new();
-    let accept_loop = tokio::spawn({
+    let accept_loop = crate::alarm::spawn_essential("HTTP accept loop", {
         let shutdown = shutdown.clone();
         async move {
             let mut builder = hyper::server::conn::http1::Builder::new();

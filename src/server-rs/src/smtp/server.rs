@@ -21,6 +21,7 @@ use super::types::SmtpServerOptions;
 use crate::logger;
 use crate::net::bind_all;
 use crate::proxy_protocol::{read_proxy_header, unmapped, Peer, Prefixed};
+use crate::sync::LockUnpoisoned;
 use crate::tls::TlsError;
 
 /// How long an implicit-TLS client may take to complete its handshake.
@@ -179,21 +180,21 @@ impl ServerShared {
     }
 
     pub fn connection_count(&self) -> usize {
-        self.connections.lock().unwrap().len()
+        self.connections.lock_unpoisoned().len()
     }
 
     pub fn add_connection(&self, handle: Arc<ConnectionHandle>) -> u64 {
         let id = self.next_connection.fetch_add(1, Ordering::Relaxed);
-        self.connections.lock().unwrap().insert(id, handle);
+        self.connections.lock_unpoisoned().insert(id, handle);
         id
     }
 
     pub fn remove_connection(&self, id: u64) {
-        self.connections.lock().unwrap().remove(&id);
+        self.connections.lock_unpoisoned().remove(&id);
     }
 
     pub fn emit_error(&self, error: &SmtpServerError) {
-        let listeners = self.error_listeners.lock().unwrap().clone();
+        let listeners = self.error_listeners.lock_unpoisoned().clone();
         for listener in listeners {
             listener(error);
         }
@@ -203,7 +204,7 @@ impl ServerShared {
     /// closes it. Returns how many there were.
     pub fn evict(&self, username: &str) -> usize {
         let evicted: Vec<Arc<ConnectionHandle>> = {
-            let mut connections = self.connections.lock().unwrap();
+            let mut connections = self.connections.lock_unpoisoned();
             let ids: Vec<u64> = connections
                 .iter()
                 .filter(|(_, handle)| handle.user().as_deref() == Some(username))
@@ -227,7 +228,7 @@ impl ServerShared {
         self.quiet.notify_waiters();
         let done = !self.listening.load(Ordering::SeqCst) && self.sockets.load(Ordering::SeqCst) == 0;
         if done && self.is_closing() && !self.close_emitted.swap(true, Ordering::SeqCst) {
-            let listeners = self.close_listeners.lock().unwrap().clone();
+            let listeners = self.close_listeners.lock_unpoisoned().clone();
             for listener in listeners {
                 listener();
             }
@@ -306,18 +307,18 @@ impl SmtpServer {
     /// connection. A connection stops taking commands while it holds more
     /// than a socket buffer's worth.
     pub fn queued_reply_bytes(&self) -> usize {
-        self.shared.connections.lock().unwrap().values().map(|connection| connection.queued_reply_bytes()).sum()
+        self.shared.connections.lock_unpoisoned().values().map(|connection| connection.queued_reply_bytes()).sum()
     }
 
     /// Calls `listener` for every connection failure worth reporting.
     pub fn on_error(&self, listener: impl Fn(&SmtpServerError) + Send + Sync + 'static) {
-        self.shared.error_listeners.lock().unwrap().push(Arc::new(listener));
+        self.shared.error_listeners.lock_unpoisoned().push(Arc::new(listener));
     }
 
     /// Calls `listener` once the listener has stopped and every socket it
     /// accepted has closed.
     pub fn on_close(&self, listener: impl Fn() + Send + Sync + 'static) {
-        self.shared.close_listeners.lock().unwrap().push(Arc::new(listener));
+        self.shared.close_listeners.lock_unpoisoned().push(Arc::new(listener));
     }
 
     /// Starts accepting connections on `port`, on every address; port 0
@@ -325,15 +326,15 @@ impl SmtpServer {
     pub async fn listen(&self, port: u16) -> io::Result<SocketAddr> {
         let listener = bind_all(port).await?;
         let address = listener.local_addr()?;
-        *self.shared.local_addr.lock().unwrap() = Some(address);
+        *self.shared.local_addr.lock_unpoisoned() = Some(address);
         self.shared.listening.store(true, Ordering::SeqCst);
-        tokio::spawn(accept_loop(self.shared.clone(), listener));
+        crate::alarm::spawn_essential("SMTP accept loop", accept_loop(self.shared.clone(), listener));
         Ok(address)
     }
 
     /// The address `listen` bound.
     pub fn address(&self) -> Option<SocketAddr> {
-        *self.shared.local_addr.lock().unwrap()
+        *self.shared.local_addr.lock_unpoisoned()
     }
 
     /// Stops accepting connections, at once: from this call on every command
@@ -373,7 +374,7 @@ impl ServerShared {
         }
 
         let connections: Vec<Arc<ConnectionHandle>> =
-            self.connections.lock().unwrap().drain().map(|(_, handle)| handle).collect();
+            self.connections.lock_unpoisoned().drain().map(|(_, handle)| handle).collect();
         let refusals: Vec<oneshot::Receiver<()>> = connections
             .iter()
             .map(|connection| {
