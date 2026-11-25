@@ -4,6 +4,7 @@ import {
   parseDate,
   parseFlag,
   parseString,
+  parseListMailbox,
   parseQuotedString,
   parseSequenceSet,
   parseNumber,
@@ -222,6 +223,89 @@ describe("parseString", () => {
     const r = parseString(c);
     expect(r.success).toBe(true);
     expect(r.value).toBe("INBOX");
+  });
+});
+
+// ─── parseListMailbox ─────────────────────────────────────────────────────────
+
+describe("parseListMailbox", () => {
+  it.each(["*", "%", "INBOX/%", "%/accounts", "INBOX*", "*%*", "a]b[c"])(
+    "captures %p whole, wildcards included",
+    (input) => {
+      const c = ctx(input);
+      const r = parseListMailbox(c);
+      expect(r).toEqual({ success: true, value: input, consumed: input.length });
+      expect(c.position).toBe(input.length);
+    }
+  );
+
+  it("keeps a wildcard pattern that parseAtom truncates", () => {
+    expect(parseAtom(ctx("INBOX/%")).value).toBe("INBOX/");
+    expect(parseListMailbox(ctx("INBOX/%")).value).toBe("INBOX/%");
+  });
+
+  it.each([
+    ["space", "INBOX/% rest"],
+    ["open paren", "INBOX/%(x"],
+    ["close paren", "INBOX/%)"],
+    ["brace", "INBOX/%{5}"],
+    ["quote", 'INBOX/%"x'],
+    ["backslash", "INBOX/%\\x"],
+    ["CR", "INBOX/%\r\n"],
+    ["LF", "INBOX/%\n"],
+    ["control char", "INBOX/%\x01x"]
+  ])("stops at %s", (_, input) => {
+    const c = ctx(input);
+    const r = parseListMailbox(c);
+    expect(r).toEqual({ success: true, value: "INBOX/%", consumed: 7 });
+    expect(c.position).toBe(7);
+  });
+
+  it("parses the quoted form and unescapes quoted-specials", () => {
+    const c = ctx('"INBOX/%" rest');
+    expect(parseListMailbox(c)).toEqual({ success: true, value: "INBOX/%", consumed: 9 });
+    expect(c.position).toBe(9);
+    expect(parseListMailbox(ctx('"a\\"b\\\\c"')).value).toBe('a"b\\c');
+  });
+
+  it("accepts an empty quoted pattern", () => {
+    expect(parseListMailbox(ctx('""'))).toEqual({ success: true, value: "", consumed: 2 });
+  });
+
+  it("keeps multibyte characters intact", () => {
+    expect(parseListMailbox(ctx("café/😀 x")).value).toBe("café/😀");
+    expect(parseListMailbox(ctx('"café 😀" x')).value).toBe("café 😀");
+  });
+
+  it("fails on an unterminated quoted pattern", () => {
+    const r = parseListMailbox(ctx('"INBOX/%'));
+    expect(r.success).toBe(false);
+    expect(r.error).toBe("Unterminated quoted string");
+  });
+
+  it.each(["", " INBOX", "(INBOX", "\\Seen", "{5}"])(
+    "fails without consuming on %p",
+    (input) => {
+      const c = ctx(input);
+      expect(parseListMailbox(c)).toEqual({
+        success: false,
+        error: "Expected list mailbox",
+        consumed: 0
+      });
+      expect(c.position).toBe(0);
+    }
+  );
+
+  it("starts at the context position, not the input start", () => {
+    const c = ctx('LIST "" INBOX/%', 8);
+    expect(parseListMailbox(c)).toEqual({ success: true, value: "INBOX/%", consumed: 7 });
+    expect(c.position).toBe(15);
+  });
+
+  it("fails at end of input", () => {
+    const c = ctx("abc", 3);
+    expect(parseListMailbox(c).success).toBe(false);
+    expect(c.position).toBe(3);
   });
 });
 
