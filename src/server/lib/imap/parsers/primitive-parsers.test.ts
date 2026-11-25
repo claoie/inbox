@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import {
   parseAtom,
   parseDate,
+  parseModifierGroup,
   parseFlag,
   parseString,
   parseQuotedString,
@@ -374,5 +375,131 @@ describe("parseDate", () => {
     const c = ctx("");
     const r = parseDate(c);
     expect(r.success).toBe(false);
+  });
+});
+
+// ─── parseModifierGroup ───────────────────────────────────────────────────────
+
+describe("parseModifierGroup", () => {
+  it("returns undefined without consuming when no group follows", () => {
+    const c = ctx(" FLAGS", 0);
+    const r = parseModifierGroup(c, "STORE", "UNCHANGEDSINCE");
+    expect(r.success).toBe(true);
+    expect(r.value).toBeUndefined();
+    expect(c.position).toBe(1);
+  });
+
+  it("returns undefined at end of input", () => {
+    const c = ctx("");
+    const r = parseModifierGroup(c, "FETCH", "CHANGEDSINCE");
+    expect(r.success).toBe(true);
+    expect(r.value).toBeUndefined();
+    expect(c.position).toBe(0);
+  });
+
+  it("parses a FETCH CHANGEDSINCE modseq", () => {
+    const c = ctx(" (CHANGEDSINCE 12345)");
+    const r = parseModifierGroup(c, "FETCH", "CHANGEDSINCE");
+    expect(r.success).toBe(true);
+    expect(r.value).toBe(12345);
+    expect(c.position).toBe(21);
+  });
+
+  it("parses a STORE UNCHANGEDSINCE modseq and stops before the item name", () => {
+    const c = ctx("(UNCHANGEDSINCE 7) +FLAGS");
+    const r = parseModifierGroup(c, "STORE", "UNCHANGEDSINCE");
+    expect(r.success).toBe(true);
+    expect(r.value).toBe(7);
+    expect(c.input.slice(c.position)).toBe(" +FLAGS");
+  });
+
+  it("matches the modifier name case-insensitively", () => {
+    const c = ctx("(changedSince 9)");
+    const r = parseModifierGroup(c, "FETCH", "CHANGEDSINCE");
+    expect(r.success).toBe(true);
+    expect(r.value).toBe(9);
+  });
+
+  it("tolerates padding whitespace inside the group", () => {
+    const c = ctx("(  CHANGEDSINCE   42  )");
+    const r = parseModifierGroup(c, "FETCH", "CHANGEDSINCE");
+    expect(r.success).toBe(true);
+    expect(r.value).toBe(42);
+    expect(c.position).toBe(c.length);
+  });
+
+  it("accepts an empty group as no modifier", () => {
+    const c = ctx("()");
+    const r = parseModifierGroup(c, "FETCH", "CHANGEDSINCE");
+    expect(r.success).toBe(true);
+    expect(r.value).toBeUndefined();
+    expect(c.position).toBe(2);
+  });
+
+  it("keeps the last value when the modifier repeats", () => {
+    const c = ctx("(CHANGEDSINCE 1 CHANGEDSINCE 2)");
+    const r = parseModifierGroup(c, "FETCH", "CHANGEDSINCE");
+    expect(r.success).toBe(true);
+    expect(r.value).toBe(2);
+  });
+
+  it("rejects a modifier that belongs to the other command", () => {
+    const r = parseModifierGroup(ctx("(UNCHANGEDSINCE 5)"), "FETCH", "CHANGEDSINCE");
+    expect(r.success).toBe(false);
+    expect(r.error).toBe("Unknown FETCH modifier: UNCHANGEDSINCE");
+  });
+
+  it("rejects an unknown modifier, naming it as sent", () => {
+    const r = parseModifierGroup(ctx("(vanished 5)"), "STORE", "UNCHANGEDSINCE");
+    expect(r.success).toBe(false);
+    expect(r.error).toBe("Unknown STORE modifier: vanished");
+  });
+
+  it("rejects a modifier name glued to its value", () => {
+    const r = parseModifierGroup(ctx("(CHANGEDSINCE5)"), "FETCH", "CHANGEDSINCE");
+    expect(r.success).toBe(false);
+    expect(r.error).toBe("Unknown FETCH modifier: CHANGEDSINCE5");
+  });
+
+  it("rejects a non-atom where a modifier name is expected", () => {
+    const r = parseModifierGroup(ctx('("CHANGEDSINCE" 5)'), "FETCH", "CHANGEDSINCE");
+    expect(r.success).toBe(false);
+    expect(r.error).toBe("Invalid FETCH modifier");
+  });
+
+  it("rejects a non-numeric modseq", () => {
+    const r = parseModifierGroup(ctx("(CHANGEDSINCE abc)"), "FETCH", "CHANGEDSINCE");
+    expect(r.success).toBe(false);
+    expect(r.error).toBe("CHANGEDSINCE requires a mod-sequence value");
+  });
+
+  it("rejects a negative modseq", () => {
+    const r = parseModifierGroup(ctx("(UNCHANGEDSINCE -1)"), "STORE", "UNCHANGEDSINCE");
+    expect(r.success).toBe(false);
+    expect(r.error).toBe("UNCHANGEDSINCE requires a mod-sequence value");
+  });
+
+  it("rejects a modifier with no modseq", () => {
+    const r = parseModifierGroup(ctx("(CHANGEDSINCE)"), "FETCH", "CHANGEDSINCE");
+    expect(r.success).toBe(false);
+    expect(r.error).toBe("CHANGEDSINCE requires a mod-sequence value");
+  });
+
+  it("rejects a group missing its closing paren", () => {
+    const r = parseModifierGroup(ctx("(CHANGEDSINCE 5"), "FETCH", "CHANGEDSINCE");
+    expect(r.success).toBe(false);
+    expect(r.error).toBe("Unterminated FETCH modifier group");
+  });
+
+  it("rejects a bare opening paren", () => {
+    const r = parseModifierGroup(ctx("("), "STORE", "UNCHANGEDSINCE");
+    expect(r.success).toBe(false);
+    expect(r.error).toBe("Unterminated STORE modifier group");
+  });
+
+  it("rejects a trailing token after the modseq", () => {
+    const r = parseModifierGroup(ctx("(CHANGEDSINCE 5 6)"), "FETCH", "CHANGEDSINCE");
+    expect(r.success).toBe(false);
+    expect(r.error).toBe("Unknown FETCH modifier: 6");
   });
 });
