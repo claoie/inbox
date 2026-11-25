@@ -5,6 +5,8 @@
  * (with `keepalive`, so it outlives the page) rather than dropping it.
  */
 
+import type { WriteOutcome } from "./refusedWrites";
+
 export const UNDO_WINDOW_MS = 6000;
 
 type Run = () => void;
@@ -58,10 +60,13 @@ export const withoutPendingDeletes = <T extends { id: string }>(mails: T[]) =>
   pending.size ? mails.filter((m) => !pending.has(m.id)) : mails;
 
 /** The request itself; `keepalive` lets it finish while the page unloads. */
-export const sendDelete = (mailId: string) =>
-  fetch(`/api/mails/${mailId}`, { method: "DELETE", keepalive: true }).catch(
-    () => undefined
-  );
+export const sendDelete = (mailId: string): Promise<WriteOutcome> =>
+  fetch(`/api/mails/${mailId}`, { method: "DELETE", keepalive: true })
+    .then((response) => response.json() as Promise<WriteOutcome>)
+    .catch((error: unknown) => ({
+      status: "error",
+      message: error instanceof Error ? error.message : "Network or parse error"
+    }));
 
 if (typeof window !== "undefined") {
   window.addEventListener("pagehide", flushDeletes);

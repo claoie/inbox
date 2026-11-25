@@ -88,6 +88,7 @@ import {
   withoutPendingDeletes
 } from "./pendingDeletes";
 import { trackMarkRead, withPendingReads } from "./pendingReads";
+import { useRefusedWrites } from "./refusedWrites";
 import {
   accountCountForCategory,
   accountForMail,
@@ -187,7 +188,10 @@ interface RenderedMailProps {
   accountsCache: AccountsCache;
   selectedCategory: Category;
   removeAccountFromQueryData: () => void;
-  requestMarkSaved: (mail: MailHeaderData, saved: boolean) => void;
+  requestMarkSaved: (
+    mail: MailHeaderData,
+    saved: boolean
+  ) => Promise<ApiResponse<MarkMailPostResponse>>;
   markSavedInQueryData: (mail: MailHeaderData, saved: boolean) => void;
   openedKebab: string;
   setOpenedKebab: Dispatch<SetStateAction<string>>;
@@ -241,6 +245,7 @@ const RenderedMail = ({
 
   const queryClient = useQueryClient();
   const { showToast } = useFeedback();
+  const watchWrites = useRefusedWrites();
   const navigate = useNavigate();
   const startReply = useStartReply();
 
@@ -252,14 +257,17 @@ const RenderedMail = ({
     // Auto-mark-read is a side effect of opening, not a user-clicked
     // control — so gate the request itself when offline rather than
     // disabling a button. The page still opens and renders cached data.
-    if (isOnline) {
-      mails
-        .filter((m) => !m.read)
-        .forEach((m) => {
-          trackMarkRead(m.id, requestMarkRead(m));
+    const unread = isOnline ? mails.filter((m) => !m.read) : [];
+    if (unread.length) {
+      watchWrites(
+        unread.map((m) => {
+          const request = requestMarkRead(m);
+          trackMarkRead(m.id, request);
           // No direct `m.read` edit: markReadInQueryData already copy-replaces the row with read: true.
           markReadInQueryData(m);
-        });
+          return request;
+        })
+      );
     }
     navigate(mailPagePath(mail.id), { state: FROM_LIST_STATE });
   };
@@ -327,8 +335,8 @@ const RenderedMail = ({
     // costs one tap on Undo rather than the mail.
     mails.forEach((m) =>
       scheduleDelete(m.id, () => {
-        requestDeleteMail(m).finally(() => {
-          queryClient.invalidateQueries(accountsCache.key);
+        watchWrites([requestDeleteMail(m)]).then((landed) => {
+          if (landed) queryClient.invalidateQueries(accountsCache.key);
         });
       })
     );
@@ -358,10 +366,12 @@ const RenderedMail = ({
   const onClickStar = () => {
     if (!isOnline) return;
     const targets = conversation.saved ? mails.filter((m) => m.saved) : [mail];
-    targets.forEach((m) => {
-      requestMarkSaved(m, !conversation.saved);
-      markSavedInQueryData(m, !conversation.saved);
-    });
+    watchWrites(
+      targets.map((m) => {
+        markSavedInQueryData(m, !conversation.saved);
+        return requestMarkSaved(m, !conversation.saved);
+      })
+    );
   };
 
   const isSpamView = selectedCategory === Category.SpamMails;
@@ -375,7 +385,6 @@ const RenderedMail = ({
     // marks as spam. Either way the mail leaves the current list.
     const nextIsSpam = !isSpamView;
 
-    const listUrl = getMailsQueryUrl(selectedAccount, selectedCategory, unified);
     // Where the mail lands: the Spam view when marking, the All Mails view
     // when un-marking. Refreshing it on navigation avoids a stale destination.
     // In the unified view a conversation can span accounts, so each mail's
@@ -389,31 +398,22 @@ const RenderedMail = ({
       )
     );
 
-    Promise.all(spamTargets.map((m) => requestMarkSpam(m, nextIsSpam)))
-      .then((responses) => {
-        const failed = responses.find(({ status }) => status !== "success");
-        if (failed) throw new Error(failed.message);
+    watchWrites(spamTargets.map((m) => requestMarkSpam(m, nextIsSpam))).then(
+      (landed) => {
+        // A refused mark already refetched everything, row and counts.
+        if (!landed) return;
         // The mail moved buckets — refresh the destination list so it shows
         // up fresh instead of relying on whatever was cached there.
-        destUrls.forEach((destUrl) =>
-          queryClient.invalidateQueries(destUrl)
-        );
-      })
-      .catch(() => {
-        // The optimistic removal below already took the row out of the view.
-        // If the server rejected the mark, re-fetch so the row comes back
-        // rather than silently vanishing.
-        queryClient.invalidateQueries(listUrl);
-      })
-      .finally(() => {
+        destUrls.forEach((destUrl) => queryClient.invalidateQueries(destUrl));
         // Spam is a MOVE between account buckets, not a delete. The optimistic
         // update below only decrements the source bucket; rather than
         // hand-maintain the destination's spam count (and create a spam
         // account row when the account had none), reconcile the whole sidebar
-        // from the authoritative accounts payload. Also restores the source
-        // count if the mark failed. Cheap — accounts is one small response.
+        // from the authoritative accounts payload. Cheap — accounts is one
+        // small response.
         queryClient.invalidateQueries(accountsCache.key);
-      });
+      }
+    );
 
     // Optimistically evict from the current view, mirroring onClickTrash.
     removeFromList(spamTargets);
@@ -906,7 +906,7 @@ const RenderedMails = ({
   if (query.isSuccess || query.data) {
     // Retained data must not render as if it were fresh: a failed revalidation
     // leaves a list that can be a week old, and every action on it is
-    // fire-and-forget optimistic. The offline banner reports connectivity and
+    // optimistic. The offline banner reports connectivity and
     // can only say "—" for the age on a cold offline start, so this carries the
     // age the banner can't know rather than duplicating it.
     const staleNotice =

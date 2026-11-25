@@ -100,6 +100,7 @@ const mountThread = async ({
     "react-router-dom"
   );
   const { Context, IsOnlineProvider } = await import("client");
+  const { FeedbackProvider } = await import("client/lib/feedback");
   const Thread = (await import("./index")).default;
 
   const queryClient = new QueryClient({
@@ -154,17 +155,21 @@ const mountThread = async ({
             Context.Provider,
             { value: contextValue as never },
             createElement(
-              MemoryRouter,
-              { initialEntries: entries, initialIndex: entries.length - 1 },
-              createElement(Probe),
+              FeedbackProvider,
+              null,
               createElement(
-                Routes,
-                null,
-                createElement(Route, { path: "/", element: null }),
-                createElement(Route, {
-                  path: "/mail/:mailId",
-                  element: createElement(ThreadRoute)
-                })
+                MemoryRouter,
+                { initialEntries: entries, initialIndex: entries.length - 1 },
+                createElement(Probe),
+                createElement(
+                  Routes,
+                  null,
+                  createElement(Route, { path: "/", element: null }),
+                  createElement(Route, {
+                    path: "/mail/:mailId",
+                    element: createElement(ThreadRoute)
+                  })
+                )
               )
             )
           )
@@ -410,6 +415,37 @@ describe("mail page — delete", () => {
       expect(deleted).toEqual([]);
       flushDeletes();
       expect(deleted).toEqual(["/api/mails/m3"]);
+    } finally {
+      flushDeletes();
+      globalThis.fetch = originalFetch;
+      await mount.teardown();
+    }
+  });
+});
+
+describe("mail page — a refused delete", () => {
+  it("puts the message back on the page and says why", async () => {
+    const { flushDeletes } = await import("../Mails/pendingDeletes");
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({ status: "failed", message: "not permitted" })
+      )) as unknown as typeof fetch;
+    const mount = await mountThread();
+    try {
+      const del = Array.from(
+        mount.container.querySelectorAll('[data-mail-id="m3"] .actionRow button')
+      ).find((b) => b.textContent === "Delete") as Element;
+      await mount.click(del);
+      expect(mount.container.querySelector('[data-mail-id="m3"]')).toBeNull();
+      await mount.act(async () => flushDeletes());
+      await mount.waitFor(() =>
+        mount.container.querySelector('[data-mail-id="m3"]')
+      );
+      expect(mount.messages().length).toBe(3);
+      expect(
+        document.querySelector(".feedback-toast.error span")?.textContent
+      ).toBe("not permitted");
     } finally {
       flushDeletes();
       globalThis.fetch = originalFetch;

@@ -353,6 +353,86 @@ describe("folder rows are conversations", () => {
     }
   });
 
+  describe("a refused write", () => {
+    const REFUSAL = "Invalid request. You may not manipulate other users' email";
+    const refuse = () => {
+      call.post = (async (_url: string, body: unknown) => {
+        posted.push(body);
+        return { status: "failed", message: REFUSAL };
+      }) as typeof call.post;
+      globalThis.fetch = (async (url: string) => {
+        deleted.push(url);
+        return new Response(JSON.stringify({ status: "failed", message: REFUSAL }));
+      }) as unknown as typeof fetch;
+    };
+    const errorToast = () =>
+      document.querySelector(".feedback-toast.error span")?.textContent ?? null;
+
+    it("puts an opened conversation back to unread and says why", async () => {
+      const { trackMarkRead } = await import("./pendingReads");
+      refuse();
+      const mount = await mountMails();
+      try {
+        await mount.act(async () => {
+          (mount.rows()[0].querySelector(".header") as HTMLElement).click();
+        });
+        expect(await mount.waitFor(errorToast)).toBe(REFUSAL);
+        await mount.waitFor(() =>
+          mount.rows()[0].classList.contains("unread") ? true : null
+        );
+      } finally {
+        trackMarkRead("m3", Promise.resolve({ status: "success" }));
+        await mount.teardown();
+      }
+    });
+
+    it("takes the star back off and says why", async () => {
+      refuse();
+      const mount = await mountMails();
+      try {
+        await openKebabAction(mount, "Save");
+        expect(await mount.waitFor(errorToast)).toBe(REFUSAL);
+        await mount.waitFor(() =>
+          mount.rows()[0].classList.contains("star") ? null : true
+        );
+        expect(
+          mount.rows()[0].querySelector('[aria-label="Unsave"]')
+        ).toBeNull();
+      } finally {
+        await mount.teardown();
+      }
+    });
+
+    it("brings a deleted conversation back once the delete is refused", async () => {
+      const { flushDeletes } = await import("./pendingDeletes");
+      refuse();
+      const mount = await mountMails();
+      try {
+        await openKebabAction(mount, "Delete");
+        expect(mount.rows().length).toBe(1);
+        await mount.act(async () => flushDeletes());
+        expect(await mount.waitFor(errorToast)).toBe(REFUSAL);
+        await mount.waitFor(() => (mount.rows().length === 2 ? true : null));
+      } finally {
+        await mount.teardown();
+      }
+    });
+
+    it("shows no error when the write lands", async () => {
+      const mount = await mountMails();
+      try {
+        await openKebabAction(mount, "Save");
+        await mount.act(async () => {
+          await new Promise((r) => setTimeout(r, 20));
+        });
+        expect(errorToast()).toBeNull();
+        expect(mount.rows()[0].classList.contains("star")).toBe(true);
+      } finally {
+        await mount.teardown();
+      }
+    });
+  });
+
   it("lists search matches one by one", async () => {
     const mount = await mountMails(Category.Search, "budget");
     try {

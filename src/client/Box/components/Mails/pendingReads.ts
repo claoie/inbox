@@ -10,6 +10,8 @@ import { MailHeaderData } from "common";
 /** When each mark-read request succeeded; null while it is in flight. */
 const marks = new Map<string, number | null>();
 const fetchesInFlight = new Set<{ startedAt: number }>();
+/** Mails whose latest mark-read did not land, so nothing should show them read. */
+const refused = new Set<string>();
 
 const dropMarksEveryFetchHasSeen = () => {
   const oldestStart = Math.min(
@@ -27,8 +29,13 @@ export const trackMarkRead = (
 ) => {
   marks.set(id, null);
   const settle = (succeeded: boolean) => {
-    if (succeeded) marks.set(id, Date.now());
-    else marks.delete(id);
+    if (succeeded) {
+      marks.set(id, Date.now());
+      refused.delete(id);
+    } else {
+      marks.delete(id);
+      refused.add(id);
+    }
     dropMarksEveryFetchHasSeen();
   };
   request.then(
@@ -36,6 +43,9 @@ export const trackMarkRead = (
     () => settle(false)
   );
 };
+
+/** Whether the latest request to mark `id` read did not land. */
+export const isReadRefused = (id: string) => refused.has(id);
 
 export const pendingReadCount = () => marks.size;
 

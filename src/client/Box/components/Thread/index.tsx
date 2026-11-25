@@ -39,6 +39,8 @@ import {
 import { AddressList } from "../Mails/components/MailHeader";
 import { openMailInNewTab, useStartReply } from "../Mails/mailActions";
 import { mailPagePath, openedFromList } from "../Mails/mailPage";
+import { isReadRefused } from "../Mails/pendingReads";
+import { useRefusedWrites } from "../Mails/refusedWrites";
 import {
   UNDO_WINDOW_MS,
   cancelDelete,
@@ -262,6 +264,7 @@ const Thread = ({ mailId }: { mailId: string }) => {
   const resolvedTheme = useResolvedTheme(theme);
   const { isOnline } = useIsOnline();
   const { showToast } = useFeedback();
+  const watchWrites = useRefusedWrites();
   const startReply = useStartReply();
 
   const url = threadQueryUrl(mailId);
@@ -283,7 +286,7 @@ const Thread = ({ mailId }: { mailId: string }) => {
   useEffect(() => {
     if (!expanded) return;
     const read = thread
-      .filter((m) => !m.read && expanded.has(m.id))
+      .filter((m) => !m.read && expanded.has(m.id) && !isReadRefused(m.id))
       .map((m) => m.id);
     if (read.length && isOnline) markReadInCaches(queryClient, read);
   }, [expanded, thread, queryClient, isOnline]);
@@ -374,9 +377,11 @@ const Thread = ({ mailId }: { mailId: string }) => {
       new MailHeaderData({ ...m, saved: save })
     );
     const body: MarkMailPostBody = { mail_id: mail.id, save };
-    call
-      .post<MarkMailPostResponse, MarkMailPostBody>("/api/mails/mark", body)
-      .finally(() => refreshMailQueries(queryClient));
+    watchWrites([
+      call.post<MarkMailPostResponse, MarkMailPostBody>("/api/mails/mark", body)
+    ]).then((landed) => {
+      if (landed) refreshMailQueries(queryClient);
+    });
   };
 
   const onSpam = (mail: MailHeaderData) => {
@@ -386,9 +391,14 @@ const Thread = ({ mailId }: { mailId: string }) => {
     updateMailInCaches(queryClient, mail.id, () => null);
     afterRemoval(mail.id);
     const body: SpamMarkPostBody = { mail_id: mail.id, is_spam: nextIsSpam };
-    call
-      .post<SpamMarkPostResponse, SpamMarkPostBody>("/api/mails/spam/mark", body)
-      .finally(() => refreshMailQueries(queryClient));
+    watchWrites([
+      call.post<SpamMarkPostResponse, SpamMarkPostBody>(
+        "/api/mails/spam/mark",
+        body
+      )
+    ]).then((landed) => {
+      if (landed) refreshMailQueries(queryClient);
+    });
     showToast({ message: nextIsSpam ? "Marked as spam." : "Moved out of spam." });
   };
 
@@ -398,7 +408,9 @@ const Thread = ({ mailId }: { mailId: string }) => {
     updateMailInCaches(queryClient, mail.id, () => null);
     const went = afterRemoval(mail.id);
     scheduleDelete(mail.id, () => {
-      sendDelete(mail.id).finally(() => refreshMailQueries(queryClient));
+      watchWrites([sendDelete(mail.id)]).then((landed) => {
+        if (landed) refreshMailQueries(queryClient);
+      });
     });
     showToast({
       message: "Mail deleted.",

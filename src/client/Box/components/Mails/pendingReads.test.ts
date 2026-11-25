@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { MailHeaderData } from "common";
 import {
+  isReadRefused,
   pendingReadCount,
   trackMarkRead,
   withPendingReads
@@ -64,5 +65,18 @@ describe("withPendingReads", () => {
     const mails = await withPendingReads(async () => [unread("a")]);
     expect(mails.map((m) => m.read)).toEqual([false]);
     expect(pendingReadCount()).toBe(0);
+  });
+});
+
+describe("isReadRefused", () => {
+  it("holds a refused mark until a later mark of the same mail lands", async () => {
+    trackMarkRead("r", Promise.resolve({ status: "failed" }));
+    await tick();
+    expect(isReadRefused("r")).toBe(true);
+    const mails = await withPendingReads(async () => [unread("r")]);
+    expect(mails.map((m) => m.read)).toEqual([false]);
+    trackMarkRead("r", Promise.resolve({ status: "success" }));
+    await tick();
+    expect(isReadRefused("r")).toBe(false);
   });
 });
