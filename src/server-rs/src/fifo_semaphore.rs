@@ -132,7 +132,7 @@ mod tests {
             let (semaphore, order) = (semaphore.clone(), order.clone());
             tasks.push(tokio::spawn(async move {
                 semaphore.acquire().await;
-                order.lock_unpoisoned().push(n);
+                order.lock().unwrap().push(n);
                 semaphore.release();
             }));
             tokio::task::yield_now().await;
@@ -141,7 +141,7 @@ mod tests {
         for task in tasks {
             task.await.unwrap();
         }
-        assert_eq!(*order.lock_unpoisoned(), vec![0, 1, 2]);
+        assert_eq!(*order.lock().unwrap(), vec![0, 1, 2]);
         assert_eq!(semaphore.in_flight(), 0);
     }
 

@@ -305,17 +305,17 @@ mod tests {
                 if self.fail.load(Ordering::SeqCst) {
                     anyhow::bail!("socket gone");
                 }
-                self.flag_changes.lock_unpoisoned().push(mail_ids.to_vec());
+                self.flag_changes.lock().unwrap().push(mail_ids.to_vec());
                 Ok(())
             })
         }
 
         fn end_idle(&self, reason: Option<&str>) {
-            self.ended.lock_unpoisoned().push(reason.map(str::to_string));
+            self.ended.lock().unwrap().push(reason.map(str::to_string));
         }
 
         fn write(&self, data: &str) -> bool {
-            self.writes.lock_unpoisoned().push(data.to_string());
+            self.writes.lock().unwrap().push(data.to_string());
             true
         }
 
@@ -378,8 +378,8 @@ mod tests {
         let alice = add(&manager, "s1", "INBOX", "alice");
         let bob = add(&manager, "s2", "INBOX", "bob");
         manager.notify_flag_change(&names(&["alice"]), &names(&["m1", "m2"])).await;
-        assert_eq!(*alice.flag_changes.lock_unpoisoned(), vec![names(&["m1", "m2"])]);
-        assert!(bob.flag_changes.lock_unpoisoned().is_empty());
+        assert_eq!(*alice.flag_changes.lock().unwrap(), vec![names(&["m1", "m2"])]);
+        assert!(bob.flag_changes.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -387,7 +387,7 @@ mod tests {
         let manager = IdleManager::new();
         let alice = add(&manager, "s1", "INBOX", "alice");
         manager.notify_flag_change(&names(&["alice"]), &[]).await;
-        assert!(alice.flag_changes.lock_unpoisoned().is_empty());
+        assert!(alice.flag_changes.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -399,7 +399,7 @@ mod tests {
 
         manager.notify_flag_change(&names(&["alice"]), &names(&["m1"])).await;
         assert_eq!(manager.get_active_session_count(), 1);
-        assert_eq!(healthy.flag_changes.lock_unpoisoned().len(), 1);
+        assert_eq!(healthy.flag_changes.lock().unwrap().len(), 1);
 
         let also_broken = add(&manager, "s3", "INBOX", "alice");
         also_broken.fail.store(true, Ordering::SeqCst);
@@ -420,8 +420,8 @@ mod tests {
         let manager = IdleManager::new();
         let session = add(&manager, "s1", "INBOX", "alice");
         manager.heartbeat_tick(Instant::now() + Duration::from_millis(IDLE_HEARTBEAT_INTERVAL_MS));
-        assert_eq!(*session.writes.lock_unpoisoned(), vec!["* OK Still here\r\n".to_string()]);
-        assert!(session.ended.lock_unpoisoned().is_empty());
+        assert_eq!(*session.writes.lock().unwrap(), vec!["* OK Still here\r\n".to_string()]);
+        assert!(session.ended.lock().unwrap().is_empty());
         assert_eq!(manager.get_active_session_count(), 1);
     }
 
@@ -430,8 +430,8 @@ mod tests {
         let manager = IdleManager::new();
         let session = add(&manager, "s1", "INBOX", "alice");
         manager.heartbeat_tick(Instant::now() + Duration::from_millis(IDLE_TIMEOUT_MS + 1));
-        assert_eq!(*session.ended.lock_unpoisoned(), vec![Some("timeout".to_string())]);
-        assert!(session.writes.lock_unpoisoned().is_empty());
+        assert_eq!(*session.ended.lock().unwrap(), vec![Some("timeout".to_string())]);
+        assert!(session.writes.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -441,7 +441,7 @@ mod tests {
         let second = add(&manager, "s2", "Drafts", "bob");
         manager.shutdown();
         for session in [first, second] {
-            assert_eq!(*session.writes.lock_unpoisoned(), vec!["* BYE Server shutting down\r\n".to_string()]);
+            assert_eq!(*session.writes.lock().unwrap(), vec!["* BYE Server shutting down\r\n".to_string()]);
             assert!(session.closed.load(Ordering::SeqCst));
         }
         assert_eq!(manager.get_active_session_count(), 0);

@@ -189,7 +189,7 @@ mod tests {
             let order = order.clone();
             tasks.push(tokio::spawn(async move {
                 let _guard = acquire_stream_mutex(key).await;
-                order.lock_unpoisoned().push(n);
+                order.lock().unwrap().push(n);
                 tokio::task::yield_now().await;
             }));
             settle().await;
@@ -199,7 +199,7 @@ mod tests {
         for task in tasks {
             task.await.unwrap();
         }
-        assert_eq!(*order.lock_unpoisoned(), vec![0, 1, 2]);
+        assert_eq!(*order.lock().unwrap(), vec![0, 1, 2]);
     }
 
     #[tokio::test]

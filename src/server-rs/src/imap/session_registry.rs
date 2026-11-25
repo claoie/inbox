@@ -130,7 +130,7 @@ pub fn get_connected_session_count() -> usize {
 /// test that counts or sweeps the registry starts from nothing.
 #[cfg(test)]
 pub(crate) fn reset_connected_sessions() {
-    CONNECTED_SESSIONS.lock_unpoisoned().clear();
+    CONNECTED_SESSIONS.lock().unwrap().clear();
 }
 
 #[cfg(test)]
@@ -155,7 +155,7 @@ mod tests {
         }
 
         fn calls(&self) -> Vec<String> {
-            self.calls.lock_unpoisoned().clone()
+            self.calls.lock().unwrap().clone()
         }
     }
 
@@ -169,12 +169,12 @@ mod tests {
         }
 
         fn write(&self, data: &str) -> bool {
-            self.calls.lock_unpoisoned().push(format!("write:{data}"));
+            self.calls.lock().unwrap().push(format!("write:{data}"));
             true
         }
 
         fn close(&self) {
-            self.calls.lock_unpoisoned().push("close".to_string());
+            self.calls.lock().unwrap().push("close".to_string());
             self.closing.store(true, Ordering::SeqCst);
         }
 

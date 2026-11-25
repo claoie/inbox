@@ -3,9 +3,11 @@
 //! One POST to `DISCORD_ALARM_WEBHOOK` per alarm key per minute, so a burst
 //! from one source cannot flood the channel or starve another source.
 
+use std::any::Any;
 use std::collections::HashMap;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -102,12 +104,7 @@ pub fn spawn_alarm_keyed(title: impl Into<String>, detail: impl Into<String>, ke
 pub fn install_panic_alarm() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let payload = info.payload();
-        let message = payload
-            .downcast_ref::<&str>()
-            .map(|message| message.to_string())
-            .or_else(|| payload.downcast_ref::<String>().cloned())
-            .unwrap_or_else(|| "unknown panic".to_string());
+        let message = panic_message(info.payload());
         let location = info.location().map(ToString::to_string).unwrap_or_default();
         crate::logger::error_with("Uncaught exception", json!({ "location": location }), &message);
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
@@ -118,8 +115,20 @@ pub fn install_panic_alarm() {
     }));
 }
 
+fn panic_message(payload: &(dyn Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|message| message.to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "unknown panic".to_string())
+}
+
 /// How long a process that is about to exit waits for its alarm to go out.
 const EXIT_ALARM_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Set by the first essential task to panic, so a second one cannot exit
+/// before the first one's alarm has gone out.
+static EXITING: AtomicBool = AtomicBool::new(false);
 
 /// Spawns a task the server cannot do its job without: a listener's accept
 /// loop. A panic there would leave the port open but unanswered, and the
@@ -134,14 +143,19 @@ where
     tokio::spawn(async move {
         match AssertUnwindSafe(task).catch_unwind().await {
             Ok(output) => output,
-            Err(_) => exit_after_essential_panic(name).await,
+            Err(payload) => exit_after_essential_panic(name, panic_message(payload.as_ref())).await,
         }
     })
 }
 
-async fn exit_after_essential_panic(name: &str) -> ! {
-    crate::logger::error_with("Essential task panicked, exiting", json!({ "task": name }), &"panic");
-    let detail = format!("**Task:** {name}\nThe server exits so that it is restarted.");
+async fn exit_after_essential_panic(name: &str, message: String) -> ! {
+    if EXITING.swap(true, Ordering::SeqCst) {
+        loop {
+            std::future::pending::<()>().await;
+        }
+    }
+    crate::logger::error_with("Essential task panicked, exiting", json!({ "task": name }), &message);
+    let detail = format!("**Task:** {name}\n**Message:** {message}\nThe server exits so that it is restarted.");
     let _ = tokio::time::timeout(EXIT_ALARM_TIMEOUT, send_alarm("Server Restarting", &detail, None)).await;
     std::process::exit(1)
 }
@@ -152,6 +166,44 @@ mod tests {
 
     const EXIT_CHILD: &str = "MAIL_TEST_ESSENTIAL_PANIC_CHILD";
 
+    /// Runs `test` again in a child process with `EXIT_CHILD` set, and a
+    /// webhook that answers after 300 ms; returns the child's exit status and
+    /// the bodies the webhook received.
+    fn run_child(test: &str, webhook: bool) -> (Option<i32>, Vec<String>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let bodies = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let received = std::sync::Arc::clone(&bodies);
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut stream = stream;
+                let mut request = Vec::new();
+                let mut chunk = [0u8; 4096];
+                while !request.ends_with(b"}]}") {
+                    match stream.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => request.extend_from_slice(&chunk[..read]),
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(300));
+                let _ = stream.write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n");
+                received.lock().unwrap().push(String::from_utf8_lossy(&request).into_owned());
+            }
+        });
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        child.args(["--exact", test]).env(EXIT_CHILD, "1");
+        if webhook {
+            child.env("DISCORD_ALARM_WEBHOOK", format!("http://{address}/alarm"));
+        } else {
+            child.env_remove("DISCORD_ALARM_WEBHOOK");
+        }
+        let output = child.output().unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        let bodies = bodies.lock().unwrap().clone();
+        (output.status.code(), bodies)
+    }
+
     #[test]
     fn a_panic_in_an_essential_task_exits_the_process_with_status_1() {
         if std::env::var_os(EXIT_CHILD).is_some() {
@@ -159,13 +211,30 @@ mod tests {
             let _ = runtime.block_on(async { spawn_essential("test task", async { panic!("fault in an essential task") }).await });
             panic!("the process should have exited before the task was joined");
         }
-        let status = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "alarm::tests::a_panic_in_an_essential_task_exits_the_process_with_status_1"])
-            .env(EXIT_CHILD, "1")
-            .env_remove("DISCORD_ALARM_WEBHOOK")
-            .output()
-            .unwrap();
-        assert_eq!(status.status.code(), Some(1), "{}", String::from_utf8_lossy(&status.stdout));
+        let (status, bodies) = run_child("alarm::tests::a_panic_in_an_essential_task_exits_the_process_with_status_1", false);
+        assert_eq!(status, Some(1));
+        assert!(bodies.is_empty());
+    }
+
+    #[test]
+    fn two_essential_tasks_panicking_together_send_one_alarm_with_the_message_before_exiting() {
+        if std::env::var_os(EXIT_CHILD).is_some() {
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+            runtime.block_on(async {
+                let first = spawn_essential("first task", async { panic!("fault in the first task") });
+                let second = spawn_essential("second task", async { panic!("fault in the second task") });
+                let _ = tokio::join!(first, second);
+            });
+            panic!("the process should have exited before the tasks were joined");
+        }
+        let (status, bodies) = run_child(
+            "alarm::tests::two_essential_tasks_panicking_together_send_one_alarm_with_the_message_before_exiting",
+            true,
+        );
+        assert_eq!(status, Some(1));
+        assert_eq!(bodies.len(), 1, "{bodies:?}");
+        assert!(bodies[0].contains("Server Restarting"), "{}", bodies[0]);
+        assert!(bodies[0].contains("fault in the first task") || bodies[0].contains("fault in the second task"), "{}", bodies[0]);
     }
 
     #[tokio::test]
