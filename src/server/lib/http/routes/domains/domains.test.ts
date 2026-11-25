@@ -274,7 +274,20 @@ describe("sharing a domain read-only", () => {
 
     expect(result.status).toBe("success");
     expect(spies.getDomainAccess).toHaveBeenCalledWith(USER.id, "example.org");
-    expect(spies.grantViewer).toHaveBeenCalledWith("d-1", "u-bob");
+    expect(spies.grantViewer).toHaveBeenCalledWith("d-1", USER.id, "u-bob");
+  });
+
+  it("refuses the share when the domain changed owner before the grant was written", async () => {
+    spies.getDomainAccess.mockResolvedValue(access());
+    spies.findUserByUsername.mockResolvedValue(account("bob"));
+    spies.grantViewer.mockResolvedValue("not_owner");
+
+    const result = (await postViewerRoute.callback(
+      req({ body: { name: "example.org", username: "bob" } })
+    )) as ApiResponse<unknown>;
+
+    expect(result.status).toBe("failed");
+    expect(result.message).toBe("You can only share a domain you own.");
   });
 
   it("refuses to share a domain the user only views", async () => {

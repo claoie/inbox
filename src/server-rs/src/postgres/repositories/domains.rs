@@ -414,19 +414,25 @@ pub enum GrantViewerResult {
     Granted,
     Exists,
     AtLimit,
+    NotOwner,
 }
 
-pub async fn grant_viewer(domain_id: &str, user_id: &str) -> DbResult<GrantViewerResult> {
+/// Grants only while `granter_id` owns the domain. The owner check takes a
+/// share lock on the domain row, so a grant racing a takeover either lands
+/// before it (and its role is dropped with the move) or sees the new owner and
+/// is refused.
+pub async fn grant_viewer(domain_id: &str, granter_id: &str, user_id: &str) -> DbResult<GrantViewerResult> {
     let result = pool()
         .query(
             "
     INSERT INTO domain_roles (domain_id, user_id, role)
-    SELECT $1, $2, 'viewer'
-    WHERE NOT EXISTS (SELECT 1 FROM domains WHERE domain_id = $1 AND user_id = $2)
-      AND (SELECT COUNT(*) FROM domain_roles WHERE domain_id = $1) < $3
+    SELECT $1, $3, 'viewer'
+    WHERE EXISTS (SELECT 1 FROM domains WHERE domain_id = $1 AND user_id = $2 FOR SHARE)
+      AND $2 <> $3
+      AND (SELECT COUNT(*) FROM domain_roles WHERE domain_id = $1) < $4
     ON CONFLICT (domain_id, user_id) DO NOTHING
     RETURNING user_id",
-            &params![domain_id, user_id, DOMAIN_VIEWER_COUNT_MAX],
+            &params![domain_id, granter_id, user_id, DOMAIN_VIEWER_COUNT_MAX],
         )
         .await?;
     if result.any() {
@@ -434,11 +440,17 @@ pub async fn grant_viewer(domain_id: &str, user_id: &str) -> DbResult<GrantViewe
     }
     let probe = pool()
         .query(
-            "SELECT 1 FROM domain_roles WHERE domain_id = $1 AND user_id = $2",
-            &params![domain_id, user_id],
+            "SELECT EXISTS (SELECT 1 FROM domains WHERE domain_id = $1 AND user_id = $2) AS owns,
+            EXISTS (SELECT 1 FROM domain_roles WHERE domain_id = $1 AND user_id = $3) AS holds",
+            &params![domain_id, granter_id, user_id],
         )
         .await?;
-    Ok(if probe.any() { GrantViewerResult::Exists } else { GrantViewerResult::AtLimit })
+    let row = probe.rows.first();
+    Ok(match (row.is_some_and(|row| row.bool("owns")), row.is_some_and(|row| row.bool("holds"))) {
+        (false, _) => GrantViewerResult::NotOwner,
+        (true, true) => GrantViewerResult::Exists,
+        (true, false) => GrantViewerResult::AtLimit,
+    })
 }
 
 pub async fn revoke_role(domain_id: &str, user_id: &str) -> DbResult<bool> {

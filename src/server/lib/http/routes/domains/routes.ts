@@ -199,7 +199,10 @@ export const postViewerRoute = new Route<DomainEntry>("POST", "/viewers", async 
   if (viewer.user_id === user.id) {
     return { status: "failed", message: "You already own this domain." };
   }
-  const result = await grantViewer(domain.domainId, viewer.user_id);
+  const result = await grantViewer(domain.domainId, user.id, viewer.user_id);
+  if (result === "not_owner") {
+    return { status: "failed", message: "You can only share a domain you own." };
+  }
   if (result === "at_limit") {
     return {
       status: "failed",

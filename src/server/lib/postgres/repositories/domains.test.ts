@@ -120,7 +120,7 @@ if (PG_URL) describe("domain statements against a real Postgres", () => {
     const viewer = await addUser("viewer");
     const stranger = await addUser("stranger");
     const domainId = await addDomain("example.com", owner);
-    await run(buildGrantViewer(domainId, viewer));
+    await run(buildGrantViewer(domainId, owner, viewer));
 
     const role = async (userId: string) =>
       (await run(buildGetDomainAccess(userId, "Example.COM"))).rows[0]?.role ?? null;
@@ -140,7 +140,7 @@ if (PG_URL) describe("domain statements against a real Postgres", () => {
     const viewer = await addUser("viewer");
     const domainId = await addDomain("example.com", owner);
     await addDomain("example.org", viewer);
-    await run(buildGrantViewer(domainId, viewer));
+    await run(buildGrantViewer(domainId, owner, viewer));
 
     const readers = (await run(buildReadersOfDomain("example.com"))).rows.map((row) => row.user_id);
     expect(readers.sort()).toEqual([owner, viewer].sort());
@@ -153,14 +153,77 @@ if (PG_URL) describe("domain statements against a real Postgres", () => {
     const owner = await addUser("owner");
     const domainId = await addDomain("example.com", owner);
 
-    expect((await run(buildGrantViewer(domainId, owner))).rowCount).toBe(0);
+    expect((await run(buildGrantViewer(domainId, owner, owner))).rowCount).toBe(0);
 
     for (let i = 0; i < DOMAIN_VIEWER_COUNT_MAX; i++) {
       const viewer = await addUser(`viewer${i}`);
-      expect((await run(buildGrantViewer(domainId, viewer))).rowCount).toBe(1);
+      expect((await run(buildGrantViewer(domainId, owner, viewer))).rowCount).toBe(1);
     }
     const oneTooMany = await addUser("late");
-    expect((await run(buildGrantViewer(domainId, oneTooMany))).rowCount).toBe(0);
+    expect((await run(buildGrantViewer(domainId, owner, oneTooMany))).rowCount).toBe(0);
+  });
+
+  describe("a grant racing a takeover of the domain", () => {
+    const viewersOf = async (domainId: string) =>
+      (await q("SELECT user_id FROM domain_roles WHERE domain_id = $1", [domainId])).rows.map(
+        (row) => row.user_id
+      );
+
+    const beginTakeover = async (domainId: string, newOwner: string) => {
+      const client = await pool.connect();
+      await client.query(`SET search_path TO ${SCHEMA}`);
+      await client.query("BEGIN");
+      await client.query("SELECT domain_id FROM domains WHERE domain_id = $1 FOR UPDATE", [domainId]);
+      await client.query("DELETE FROM domain_roles WHERE domain_id = $1", [domainId]);
+      await client.query("UPDATE domains SET user_id = $2 WHERE domain_id = $1", [domainId, newOwner]);
+      return {
+        commit: async () => {
+          await client.query("COMMIT");
+          client.release();
+        },
+      };
+    };
+
+    it("drops the roles the previous owner granted", async () => {
+      await fresh();
+      const [former, claimant, viewer] = [await addUser("a"), await addUser("b"), await addUser("v")];
+      const domainId = await addDomain("x.org", former);
+      await run(buildGrantViewer(domainId, former, viewer));
+
+      await (await beginTakeover(domainId, claimant)).commit();
+
+      expect(await viewersOf(domainId)).toEqual([]);
+      expect((await run(buildGetDomainAccess(viewer, "x.org"))).rows).toEqual([]);
+    });
+
+    it("refuses a grant written after the takeover by the former owner", async () => {
+      await fresh();
+      const [former, claimant, viewer] = [await addUser("a"), await addUser("b"), await addUser("v")];
+      const domainId = await addDomain("x.org", former);
+      await (await beginTakeover(domainId, claimant)).commit();
+
+      expect((await run(buildGrantViewer(domainId, former, viewer))).rowCount).toBe(0);
+      expect(await viewersOf(domainId)).toEqual([]);
+      expect((await run(buildGrantViewer(domainId, claimant, viewer))).rowCount).toBe(1);
+    });
+
+    it("refuses a grant that arrives while the takeover is in flight", async () => {
+      await fresh();
+      const [former, claimant, viewer] = [await addUser("a"), await addUser("b"), await addUser("v")];
+      const domainId = await addDomain("x.org", former);
+      const takeover = await beginTakeover(domainId, claimant);
+
+      let settled = false;
+      const grant = run(buildGrantViewer(domainId, former, viewer)).finally(() => {
+        settled = true;
+      });
+      await Bun.sleep(200);
+      expect(settled).toBe(false);
+      await takeover.commit();
+
+      expect((await grant).rowCount).toBe(0);
+      expect(await viewersOf(domainId)).toEqual([]);
+    });
   });
 
   it("removes only the owner's domain, remembering it as a former one", async () => {
@@ -312,7 +375,7 @@ if (PG_URL) describe("domain statements against a real Postgres", () => {
       const viewer = await addUser("viewer");
       const shared = await addDomain("example.com", owner);
       await addDomain("example.org", owner);
-      await run(buildGrantViewer(shared, viewer));
+      await run(buildGrantViewer(shared, owner, viewer));
       const visible = await addMail(owner, { subject: "s", envelope_to: [{ address: "x@example.com" }] });
       const hidden = await addMail(owner, {
         subject: "h",
@@ -333,7 +396,7 @@ if (PG_URL) describe("domain statements against a real Postgres", () => {
       const viewer = await addUser("viewer");
       const shared = await addDomain("example.com", owner);
       await addDomain("example.org", owner);
-      await run(buildGrantViewer(shared, viewer));
+      await run(buildGrantViewer(shared, owner, viewer));
       const attachment = (id: string) => [{ filename: "f", content: { data: id } }];
       await addMail(owner, {
         subject: "s",

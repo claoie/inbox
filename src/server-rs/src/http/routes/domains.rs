@@ -201,10 +201,16 @@ async fn post_viewer(req: &mut HttpRequest) -> anyhow::Result<Reply> {
     if viewer.user_id == user.id {
         return Ok(ApiResponse::failed("You already own this domain.").into());
     }
-    if grant_viewer(&domain.domain_id, &viewer.user_id).await? == GrantViewerResult::AtLimit {
-        return Ok(
-            ApiResponse::failed(format!("A domain can have at most {DOMAIN_VIEWER_COUNT_MAX} viewers.")).into()
-        );
+    match grant_viewer(&domain.domain_id, &user.id, &viewer.user_id).await? {
+        GrantViewerResult::NotOwner => {
+            return Ok(ApiResponse::failed("You can only share a domain you own.").into());
+        }
+        GrantViewerResult::AtLimit => {
+            return Ok(
+                ApiResponse::failed(format!("A domain can have at most {DOMAIN_VIEWER_COUNT_MAX} viewers.")).into()
+            );
+        }
+        GrantViewerResult::Granted | GrantViewerResult::Exists => {}
     }
     logger::info(
         "Granted the viewer role on a domain",

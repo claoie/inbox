@@ -350,29 +350,46 @@ export const listDomainViewers = async (domainId: string): Promise<DomainMember[
   return result.rows.map((row) => ({ userId: row.user_id, username: row.username, role: row.role }));
 };
 
-export type GrantViewerResult = "granted" | "exists" | "at_limit";
+export type GrantViewerResult = "granted" | "exists" | "at_limit" | "not_owner";
 
-export const buildGrantViewer = (domainId: string, userId: string): PreparedQuery => ({
+/**
+ * Grants only while `granterId` owns the domain. The owner check takes a share
+ * lock on the domain row, so a grant racing a takeover either lands before it
+ * (and its role is dropped with the move) or sees the new owner and is refused.
+ */
+export const buildGrantViewer = (
+  domainId: string,
+  granterId: string,
+  userId: string
+): PreparedQuery => ({
   // Never onto the owner: the owner's role is the domain row itself.
   sql: `
     INSERT INTO ${DOMAIN_ROLES} (domain_id, user_id, role)
-    SELECT $1, $2, 'viewer'
-    WHERE NOT EXISTS (SELECT 1 FROM ${DOMAINS} WHERE domain_id = $1 AND user_id = $2)
-      AND (SELECT COUNT(*) FROM ${DOMAIN_ROLES} WHERE domain_id = $1) < $3
+    SELECT $1, $3, 'viewer'
+    WHERE EXISTS (SELECT 1 FROM ${DOMAINS} WHERE domain_id = $1 AND user_id = $2 FOR SHARE)
+      AND $2 <> $3
+      AND (SELECT COUNT(*) FROM ${DOMAIN_ROLES} WHERE domain_id = $1) < $4
     ON CONFLICT (domain_id, user_id) DO NOTHING
     RETURNING user_id`,
-  values: [domainId, userId, DOMAIN_VIEWER_COUNT_MAX],
+  values: [domainId, granterId, userId, DOMAIN_VIEWER_COUNT_MAX],
 });
 
-export const grantViewer = async (domainId: string, userId: string): Promise<GrantViewerResult> => {
-  const { sql, values } = buildGrantViewer(domainId, userId);
+export const grantViewer = async (
+  domainId: string,
+  granterId: string,
+  userId: string
+): Promise<GrantViewerResult> => {
+  const { sql, values } = buildGrantViewer(domainId, granterId, userId);
   const result = await pool.query(sql, values);
   if (result.rowCount) return "granted";
-  const probe = await pool.query(
-    `SELECT 1 FROM ${DOMAIN_ROLES} WHERE domain_id = $1 AND user_id = $2`,
-    [domainId, userId]
+  const probe = await pool.query<{ owns: boolean; holds: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM ${DOMAINS} WHERE domain_id = $1 AND user_id = $2) AS owns,
+            EXISTS (SELECT 1 FROM ${DOMAIN_ROLES} WHERE domain_id = $1 AND user_id = $3) AS holds`,
+    [domainId, granterId, userId]
   );
-  return probe.rowCount ? "exists" : "at_limit";
+  const { owns, holds } = probe.rows[0];
+  if (!owns) return "not_owner";
+  return holds ? "exists" : "at_limit";
 };
 
 export const revokeRole = async (domainId: string, userId: string): Promise<boolean> => {
