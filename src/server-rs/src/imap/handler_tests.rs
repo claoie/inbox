@@ -2163,7 +2163,7 @@ mod socket_errors {
         let message = format!("error:0A000000:SSL routines:ssl3_read_bytes:{reason}");
         io::Error::new(
             io::ErrorKind::InvalidData,
-            TlsError { reason: reason.to_string(), message, client_named_this_certificate: false },
+            TlsError { reason: reason.to_string(), message, server_name: None },
         )
     }
 

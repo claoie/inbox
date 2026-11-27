@@ -31,7 +31,7 @@ use openssl::ssl::{
     self, ClientHelloResponse, ErrorCode, Ssl, SslAlert, SslContext, SslMethod, SslOptions, SslRef,
     NameType, SslSessionCacheMode, SslVersion,
 };
-use openssl::x509::{X509, X509Ref};
+use openssl::x509::X509;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::env;
@@ -350,40 +350,22 @@ impl TlsAcceptor {
             // A close_notify before the handshake is through: a hang-up.
             Err(error) if error.code() == ErrorCode::ZERO_RETURN => Err(io::ErrorKind::UnexpectedEof.into()),
             Err(error) => {
-                let ssl = stream.ssl();
-                let named = ssl
-                    .servername(NameType::HOST_NAME)
-                    .zip(ssl.certificate())
-                    .is_some_and(|(name, cert)| certificate_is_for(cert, name));
-                Err(marked_as_named(io_error(error), named))
+                let server_name = stream.ssl().servername(NameType::HOST_NAME).map(str::to_owned);
+                Err(with_server_name(io_error(error), server_name))
             }
         }
     }
 }
 
-/// Whether `name`, the host a client asked for, is one `cert` is for: a DNS
-/// name of its subject alternative names, exactly or under a `*.` wildcard
-/// that stands for one label.
-pub fn certificate_is_for(cert: &X509Ref, name: &str) -> bool {
-    let name = name.trim_end_matches('.').to_ascii_lowercase();
-    cert.subject_alt_names().into_iter().flatten().filter_map(|entry| entry.dnsname().map(str::to_ascii_lowercase)).any(
-        |dns| match dns.strip_prefix("*.") {
-            Some(parent) => name.split_once('.').is_some_and(|(label, rest)| !label.is_empty() && rest == parent),
-            None => dns == name,
-        },
-    )
-}
-
-/// Marks a handshake's TLS failure as coming from a client that asked for a
-/// host this server's certificate is for.
-fn marked_as_named(error: io::Error, named: bool) -> io::Error {
-    if !named || error.get_ref().and_then(|inner| inner.downcast_ref::<TlsError>()).is_none() {
+/// Records on a handshake's TLS failure the host the client asked for by SNI.
+fn with_server_name(error: io::Error, server_name: Option<String>) -> io::Error {
+    if server_name.is_none() || error.get_ref().and_then(|inner| inner.downcast_ref::<TlsError>()).is_none() {
         return error;
     }
     let kind = error.kind();
     match error.into_inner().map(|inner| inner.downcast::<TlsError>()) {
         Some(Ok(mut tls)) => {
-            tls.client_named_this_certificate = true;
+            tls.server_name = server_name;
             io::Error::new(kind, *tls)
         }
         Some(Err(other)) => io::Error::new(kind, other),
@@ -415,10 +397,8 @@ pub struct TlsError {
     pub reason: String,
     /// The whole error line, with the function that raised it.
     pub message: String,
-    /// The client asked (by SNI) for a host this server's certificate is
-    /// for. A client that asked for no name, or another, can't accept the
-    /// certificate whatever it is, so its refusal says nothing about it.
-    pub client_named_this_certificate: bool,
+    /// For a failed handshake, the host the client asked for by SNI.
+    pub server_name: Option<String>,
 }
 
 impl std::fmt::Display for TlsError {
@@ -447,7 +427,7 @@ fn io_error(error: ssl::Error) -> io::Error {
         let reason = first.reason().unwrap_or("unknown").to_string();
         return io::Error::new(
             io::ErrorKind::InvalidData,
-            TlsError { reason, message: first.to_string(), client_named_this_certificate: false },
+            TlsError { reason, message: first.to_string(), server_name: None },
         );
     }
     error.into_io_error().unwrap_or_else(io::Error::other)
@@ -507,7 +487,6 @@ mod tests {
     use openssl::pkey::Private;
     use openssl::rsa::Rsa;
     use openssl::ssl::{SslConnector, SslConnectorBuilder, SslVerifyMode};
-    use openssl::x509::extension::SubjectAlternativeName;
     use openssl::x509::X509NameBuilder;
     use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 
@@ -526,8 +505,6 @@ mod tests {
         cert.set_pubkey(key).unwrap();
         cert.set_not_before(&Asn1Time::days_from_now(0).unwrap()).unwrap();
         cert.set_not_after(&Asn1Time::days_from_now(1).unwrap()).unwrap();
-        let names = SubjectAlternativeName::new().dns("localhost").build(&cert.x509v3_context(None, None)).unwrap();
-        cert.append_extension(names).unwrap();
         cert.sign(key, MessageDigest::sha256()).unwrap();
         let (cert_path, key_path) = (dir.join("cert.pem"), dir.join("key.pem"));
         fs::write(&cert_path, cert.build().to_pem().unwrap()).unwrap();
@@ -593,33 +570,6 @@ mod tests {
         error.get_ref().and_then(|inner| inner.downcast_ref::<TlsError>()).expect("a TLS-layer error")
     }
 
-    /// A certificate for `names` (DNS subject alternative names), self-signed.
-    fn certificate_for(names: &[&str]) -> X509 {
-        let key = rsa_key();
-        let mut cert = X509::builder().unwrap();
-        cert.set_version(2).unwrap();
-        cert.set_pubkey(&key).unwrap();
-        let mut alt = SubjectAlternativeName::new();
-        for name in names {
-            alt.dns(name);
-        }
-        let alt = alt.build(&cert.x509v3_context(None, None)).unwrap();
-        cert.append_extension(alt).unwrap();
-        cert.sign(&key, MessageDigest::sha256()).unwrap();
-        cert.build()
-    }
-
-    #[test]
-    fn a_certificate_is_for_its_dns_names_and_one_label_under_a_wildcard() {
-        let cert = certificate_for(&["mail.example", "*.wild.example"]);
-        for name in ["mail.example", "MAIL.Example", "mail.example.", "a.wild.example"] {
-            assert!(certificate_is_for(&cert, name), "{name}");
-        }
-        for name in ["example", "other.example", "wild.example", "a.b.wild.example", ".wild.example", ""] {
-            assert!(!certificate_is_for(&cert, name), "{name}");
-        }
-    }
-
     /// What the server's handshake reports when a client that checks
     /// certificates (and trusts none of this test's) refuses it, having asked
     /// for `server_name` by SNI, or for nothing.
@@ -636,12 +586,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_refusal_is_marked_as_from_a_client_that_asked_for_this_certificate_only_when_it_did() {
+    async fn a_refused_handshake_records_the_host_the_client_asked_for() {
         let asked = refusal_seen_by_the_server(Some("localhost")).await;
         assert!(asked.reason.contains("unknown ca"), "{}", asked.message);
-        assert!(asked.client_named_this_certificate);
-        assert!(!refusal_seen_by_the_server(None).await.client_named_this_certificate);
-        assert!(!refusal_seen_by_the_server(Some("other.example")).await.client_named_this_certificate);
+        assert_eq!(asked.server_name.as_deref(), Some("localhost"));
+        assert_eq!(refusal_seen_by_the_server(Some("other.example")).await.server_name.as_deref(), Some("other.example"));
+        assert_eq!(refusal_seen_by_the_server(None).await.server_name, None);
     }
 
     #[tokio::test]
