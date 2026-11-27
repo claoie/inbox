@@ -33,7 +33,9 @@ pub const SMTP_CLOSE_TIMEOUT_MS: u64 = 5 * 1000;
 pub const MAX_MESSAGE_BYTES: u64 = 35 * 1024 * 1024;
 
 // A peer rejecting our certificate (expired, wrong hostname, unknown CA) is a
-// server-side defect even though it surfaces as a TLS-layer error, so it pages.
+// server-side defect even though it surfaces as a TLS-layer error, so it pages,
+// when the peer asked for a host the certificate is for. A scanner that dials
+// the address, or names another host, refuses any certificate, and is noise.
 const PEER_CERT_REJECTION_ALERTS: [&str; 6] = [
     "ALERT_BAD_CERTIFICATE",
     "ALERT_UNSUPPORTED_CERTIFICATE",
@@ -116,7 +118,7 @@ pub enum ServerErrorReport {
 /// anything else pages.
 pub fn classify_server_error(port: u16, secure: bool, error: &SmtpServerError) -> ServerErrorReport {
     let message = error.message.as_str();
-    let suppressed = !is_peer_cert_rejection(error)
+    let suppressed = !(is_peer_cert_rejection(error) && error.client_named_this_certificate)
         && (is_implicit_tls_handshake_failure(secure, error)
             || is_tls_layer_error(error)
             || is_peer_drop_error(error)
@@ -399,34 +401,47 @@ mod tests {
         assert!(!warns(false, &not_the_tls_library));
     }
 
+    /// A failure from a client that asked, by SNI, for a host our certificate is for.
+    fn named(error: SmtpServerError) -> SmtpServerError {
+        SmtpServerError { client_named_this_certificate: true, ..error }
+    }
+
     #[test]
     fn pages_when_the_peer_rejects_our_certificate() {
-        assert!(!warns(false, &boring_ssl("SSLV3_ALERT_BAD_CERTIFICATE")));
-        assert!(!warns(false, &boring_ssl("TLSV1_ALERT_UNKNOWN_CA")));
+        assert!(!warns(false, &named(boring_ssl("SSLV3_ALERT_BAD_CERTIFICATE"))));
+        assert!(!warns(false, &named(boring_ssl("TLSV1_ALERT_UNKNOWN_CA"))));
         let open_ssl_1 = SmtpServerError {
             library: Some("SSL routines".to_string()),
             reason: Some("sslv3 alert bad certificate".to_string()),
             code: Some("ERR_SSL_SSLV3_ALERT_BAD_CERTIFICATE".to_string()),
             ..error("error:14094412:SSL routines:ssl3_read_bytes:sslv3 alert bad certificate")
         };
-        assert!(!warns(false, &open_ssl_1));
+        assert!(!warns(false, &named(open_ssl_1)));
         let open_ssl_3 = SmtpServerError {
             library: Some("SSL routines".to_string()),
             reason: Some("ssl/tls alert bad certificate".to_string()),
             code: Some("ERR_SSL_SSL/TLS_ALERT_BAD_CERTIFICATE".to_string()),
             ..error("error:0A000412:SSL routines::ssl/tls alert bad certificate")
         };
-        assert!(!warns(false, &open_ssl_3));
-        assert!(warns(false, &boring_ssl("NO_SHARED_CIPHER")));
+        assert!(!warns(false, &named(open_ssl_3)));
+        assert!(warns(false, &named(boring_ssl("NO_SHARED_CIPHER"))));
         // It pages on the implicit-TLS listener too, where any other handshake failure is noise.
-        assert!(!warns(true, &boring_ssl("SSLV3_ALERT_CERTIFICATE_EXPIRED")));
+        assert!(!warns(true, &named(boring_ssl("SSLV3_ALERT_CERTIFICATE_EXPIRED"))));
+    }
+
+    #[test]
+    fn a_certificate_refused_by_a_client_that_asked_for_another_host_or_none_is_noise() {
+        for reason in ["SSLV3_ALERT_BAD_CERTIFICATE", "TLSV1_ALERT_UNKNOWN_CA", "SSLV3_ALERT_CERTIFICATE_EXPIRED"] {
+            assert!(warns(true, &boring_ssl(reason)), "{reason} on the implicit-TLS listener");
+            assert!(warns(false, &boring_ssl(reason)), "{reason} after STARTTLS");
+        }
     }
 
     #[test]
     fn names_the_peer_of_a_certificate_rejected_during_the_implicit_tls_handshake() {
         let rejected = SmtpServerError {
             meta: meta("connect", Some("203.0.113.7")),
-            ..boring_ssl("SSLV3_ALERT_BAD_CERTIFICATE")
+            ..named(boring_ssl("SSLV3_ALERT_BAD_CERTIFICATE"))
         };
         let report = classify_server_error(PORT, true, &rejected);
         let ServerErrorReport::Alarm { remote_address, detail } = report else {
@@ -475,8 +490,13 @@ mod tests {
 
     /// What the TLS stream reports for an OpenSSL failure, by its reason.
     fn openssl_error(reason: &str) -> SmtpServerError {
+        openssl_failure(reason, false)
+    }
+
+    /// The same, saying whether the client asked for a host our certificate is for.
+    fn openssl_failure(reason: &str, client_named_this_certificate: bool) -> SmtpServerError {
         let message = format!("error:0A000000:SSL routines:ssl3_read_bytes:{reason}");
-        let error = crate::tls::TlsError { reason: reason.to_string(), message };
+        let error = crate::tls::TlsError { reason: reason.to_string(), message, client_named_this_certificate };
         SmtpServerError::from_io("read", &std::io::Error::new(std::io::ErrorKind::InvalidData, error))
     }
 
@@ -492,7 +512,9 @@ mod tests {
         assert!(warns(false, &openssl_error("sslv3 alert handshake failure")));
         assert!(warns(false, &openssl_error("tlsv1 alert protocol version")));
 
-        // A client that refuses this server's certificate: a defect here.
+        // A client that asked for this server's host and refuses its
+        // certificate: a defect here. One that asked for none, or another host:
+        // noise.
         for reason in [
             "sslv3 alert bad certificate",
             "sslv3 alert unsupported certificate",
@@ -501,10 +523,14 @@ mod tests {
             "sslv3 alert certificate unknown",
             "tlsv1 alert unknown ca",
         ] {
-            let rejected = openssl_error(reason);
+            let rejected = openssl_failure(reason, true);
+            assert!(rejected.client_named_this_certificate, "{reason}");
             assert!(is_peer_cert_rejection(&rejected), "{reason}");
             assert!(!warns(false, &rejected), "{reason}");
             assert!(!warns(true, &rejected), "{reason}");
+            let unnamed = openssl_failure(reason, false);
+            assert!(warns(false, &unnamed), "{reason}");
+            assert!(warns(true, &unnamed), "{reason}");
         }
         assert!(!is_peer_cert_rejection(&openssl_error("sslv3 alert handshake failure")));
     }

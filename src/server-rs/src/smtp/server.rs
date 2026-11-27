@@ -56,6 +56,8 @@ pub struct SmtpServerError {
     pub meta: Option<HandshakeErrorMeta>,
     /// The client, for an error raised inside a session.
     pub remote_address: Option<String>,
+    /// The TLS client asked (by SNI) for a host this server's certificate is for.
+    pub client_named_this_certificate: bool,
 }
 
 impl SmtpServerError {
@@ -72,6 +74,7 @@ impl SmtpServerError {
                 code: Some(format!("ERR_SSL_{reason}")),
                 library: Some("SSL routines".to_string()),
                 reason: Some(reason),
+                client_named_this_certificate: tls.client_named_this_certificate,
                 ..Default::default()
             };
         }

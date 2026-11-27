@@ -2161,7 +2161,10 @@ mod socket_errors {
     /// names it.
     fn alert(reason: &str) -> io::Error {
         let message = format!("error:0A000000:SSL routines:ssl3_read_bytes:{reason}");
-        io::Error::new(io::ErrorKind::InvalidData, TlsError { reason: reason.to_string(), message })
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            TlsError { reason: reason.to_string(), message, client_named_this_certificate: false },
+        )
     }
 
     #[test]
